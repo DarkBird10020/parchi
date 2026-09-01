@@ -1,0 +1,8 @@
+cryptography>=42.0
+fastapi>=0.110
+uvicorn>=0.27
+pydantic>=2.6
+
+# Only needed to run the intent check against the real model
+# (ANTHROPIC_API_KEY set). Everything else runs without it.
+anthropic>=1.0

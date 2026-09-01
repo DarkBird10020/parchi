@@ -1,0 +1,139 @@
+name: CI
+
+# Nothing merges into main that a reviewer would have to run locally to trust.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    name: tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest ruff
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Unit tests
+        run: pytest tests/test_parchi.py -q
+
+      - name: Adversarial patterns
+        run: python tests/test_attacks.py
+
+  scoreboard:
+    name: scoreboard reproduces and does not regress
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Regenerate the dataset
+        run: python data/generate.py
+
+      - name: The dataset is deterministic
+        # Same seed, same 1,000 rows. If this diff is non-empty, a number in the
+        # README just silently stopped being reproducible.
+        run: git diff --exit-code -- data/
+
+      - name: Score, and fail on regression
+        run: python eval/evaluate.py --gate
+
+      - name: Verify the ledger chain
+        run: |
+          python -c "
+          from parchi.ledger import verify_chain
+          ok, msg, n = verify_chain('eval/ledger.jsonl')
+          print(msg)
+          raise SystemExit(0 if ok and n == 1000 else 1)
+          "
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scoreboard
+          path: |
+            eval/results.json
+            eval/results.md
+
+  demo:
+    name: demo server boots and authorises
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Boot the checkpoint and run every scenario
+        run: |
+          python demo/server.py &
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:8000/api/scenarios >/dev/null && break
+            sleep 1
+          done
+          python - <<'PY'
+          import json, urllib.request
+          expected = {
+              "allow": "ALLOW", "over_cap": "BLOCK", "injection": "BLOCK",
+              "step_up": "STEP_UP", "expired": "BLOCK", "wrong_method": "BLOCK",
+              "payee_substitution": "BLOCK", "replay": "BLOCK",
+          }
+          # Every scenario the page offers must be covered here: one added to the
+          # server and forgotten here is a scenario nothing checks.
+          catalogue = json.load(urllib.request.urlopen(
+              "http://127.0.0.1:8000/api/scenarios", timeout=20))
+          missing = {s["id"] for s in catalogue["scenarios"]} - set(expected)
+          if missing:
+              raise SystemExit(f"scenarios with no expected verdict in CI: {sorted(missing)}")
+          failed = False
+          for scenario, want in expected.items():
+              req = urllib.request.Request(
+                  "http://127.0.0.1:8000/api/authorize",
+                  data=json.dumps({"scenario": scenario}).encode(),
+                  headers={"content-type": "application/json"})
+              got = json.load(urllib.request.urlopen(req, timeout=20))["decision"]["verdict"]
+              print(f"{'ok  ' if got == want else 'FAIL'} {scenario:14s} want {want:8s} got {got}")
+              failed |= got != want
+          raise SystemExit(1 if failed else 0)
+          PY

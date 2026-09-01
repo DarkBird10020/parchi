@@ -1,0 +1,103 @@
+# CodeRabbit review configuration
+# Install the app at https://github.com/apps/coderabbitai and grant it this repo;
+# this file is what it reads on every pull request.
+# Reference: https://docs.coderabbit.ai/reference/configuration
+
+language: en-US
+
+tone_instructions: >-
+  This is a payment checkpoint: a wrong verdict is either a fraudulent purchase or a refused real customer. Prioritise correctness, security and boundary conditions over style. Money is integer paise. Be direct; skip praise.
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: true
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  changed_files_summary: true
+  sequence_diagrams: true
+  poem: false
+
+  path_filters:
+    - "!**/__pycache__/**"
+    - "!**/*.pyc"
+    - "!data/transactions.jsonl"      # 1,000 generated rows; review the generator
+    - "!eval/results.json"
+    - "!eval/ledger.jsonl"
+    - "!demo/ledger.jsonl"
+
+  path_instructions:
+    - path: "parchi/checks.py"
+      instructions: >
+        These are the deterministic checks in front of a payment. For every
+        change ask: can this be bypassed by case, whitespace, Unicode
+        confusables, a negative or zero amount, an empty collection, an integer
+        boundary (<= vs <), or a value the caller controls? Comparisons of
+        merchant-supplied strings must be normalised. A check must never raise -
+        it must return a failing CheckResult with a reason a merchant could quote
+        to an issuer. Flag any new check that is not also added to run_all.
+    - path: "parchi/mandate.py"
+      instructions: >
+        Canonical bytes must be byte-identical between signing and verification.
+        Flag anything that changes field order, whitespace, key names, types, or
+        adds a field without a matching from_dict normalisation, since every
+        signature check depends on it. Money is integer paise; flag any float
+        arithmetic on money.
+    - path: "parchi/intent_match.py"
+      instructions: >
+        This is the only LLM call and its input includes untrusted merchant text.
+        Flag anything that lets that text escape its delimiters, act as an
+        instruction, or reach the model unsanitised. The call must keep a hard
+        timeout and no retries, and every failure path must degrade to the
+        deterministic fallback rather than raising or defaulting to "allow".
+    - path: "parchi/ledger.py"
+      instructions: >
+        Append-only and hash-chained. Flag anything that mutates an existing
+        record, changes how the hash body is serialised, or lets the in-memory
+        `prev` diverge from what a reader would compute from the file.
+    - path: "parchi/engine.py"
+      instructions: >
+        Verify the verdict logic exhaustively: a degraded intent check must never
+        auto-approve, a failing rule must short-circuit, and the ledger must be
+        written on every path including blocks.
+    - path: "tests/test_attacks.py"
+      instructions: >
+        Each entry is an attack pattern with an expected verdict. Suggest missing
+        patterns; do not suggest deleting or weakening an expectation.
+    - path: "data/generate.py"
+      instructions: >
+        The generator encodes the same policy the engine does. Flag any change
+        that could make a row's ground-truth label disagree with the engine's
+        correct behaviour, or that breaks determinism for a fixed seed.
+    - path: "demo/index.html"
+      instructions: >
+        Review for accessibility (contrast, focus states, keyboard access,
+        reduced motion) and for any XSS-shaped issue where API data is written
+        into innerHTML.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  tools:
+    ruff:
+      enabled: true
+    actionlint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    semgrep:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  opt_out: false
+  learnings:
+    scope: local

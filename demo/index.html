@@ -1,0 +1,720 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Parchi — a permission layer for AI-initiated payments</title>
+<style>
+  /* "The paper slip": the mandate is a physical object. Cream ground, dashed
+     rules, a vermillion stamp for the verdict. No external fonts, no CDN — the
+     demo has to work on a hotel wifi. */
+  :root{
+    --paper:#F5F1E8; --card:#FFFDF7; --card-2:#F9F2E9;
+    --rule:#DCD4C2; --rule-2:#C9BFA8; --rule-3:#EDE7D9;
+    --ink:#16130E; --ink-2:#3E382D; --ink-3:#6B6151; --ink-4:#9E947F;
+    --stamp:#B4472B;                 /* vermillion: the accent, and BLOCK */
+    --allow:#17694A; --block:#B4472B; --stepup:#8A6410;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation-duration:.001ms!important; animation-iteration-count:1!important; transition-duration:.001ms!important}
+  }
+  body{
+    margin:0; background:var(--paper); color:var(--ink); font-family:var(--serif);
+    font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased;
+  }
+  a{color:var(--stamp); text-decoration:none}
+  a:hover{color:#8E3520}
+  :focus-visible{outline:2px solid var(--stamp); outline-offset:3px}
+  .wrap{max-width:1180px; margin:0 auto; padding:0 40px}
+  @media(max-width:700px){ .wrap{padding:0 20px} }
+  .eyebrow{
+    font-family:var(--mono); font-size:11px; letter-spacing:.2em; text-transform:uppercase;
+    color:var(--stamp);
+  }
+  h1,h2,h3{margin:0; font-weight:400; line-height:1.18; letter-spacing:-0.025em}
+  h1{font-size:clamp(44px,6.4vw,78px); line-height:1.0; letter-spacing:-0.03em}
+  h1 em{font-style:italic}
+  h2{font-size:clamp(28px,3.8vw,42px)}
+  h3{font-size:19px}
+  p{margin:0}
+  .muted{color:var(--ink-2)}
+  .dim{color:var(--ink-3)}
+  .mono{font-family:var(--mono)}
+  .it{font-style:italic}
+
+  /* ---------- nav ---------- */
+  nav{
+    position:sticky; top:0; z-index:50; background:rgba(245,241,232,.93);
+    backdrop-filter:blur(10px); border-bottom:1px solid var(--rule);
+  }
+  nav .wrap{display:flex; align-items:center; gap:24px; height:70px}
+  .brand{display:flex; align-items:center; gap:11px; font-weight:700; font-size:17px; letter-spacing:-0.01em}
+  .brand .mark{
+    width:28px; height:28px; border-radius:4px; display:grid; place-items:center;
+    background:var(--ink); color:var(--paper); font-size:15px;
+  }
+  .navlinks{
+    display:flex; gap:24px; margin-left:auto; font-family:var(--mono);
+    font-size:11.5px; letter-spacing:.13em; text-transform:uppercase;
+  }
+  .navlinks a{color:var(--ink-3)}
+  .navlinks a:hover{color:var(--ink)}
+  @media(max-width:900px){ .navlinks{display:none} }
+
+  /* ---------- hero ---------- */
+  header{padding:76px 0 64px}
+  .hero{display:grid; grid-template-columns:1.08fr .92fr; gap:64px; align-items:center}
+  @media(max-width:980px){ .hero{grid-template-columns:1fr; gap:44px} }
+  .hero h1{margin:20px 0 0}
+  .hero .lede{font-size:20px; margin-top:24px; max-width:36ch; color:var(--ink-2); line-height:1.62; text-wrap:pretty}
+  .cta{display:flex; gap:12px; margin-top:32px; flex-wrap:wrap}
+  .btn{
+    appearance:none; font-family:var(--mono); border:1px solid var(--ink); background:transparent;
+    color:var(--ink); padding:14px 24px; border-radius:3px; font-size:12.5px;
+    letter-spacing:.1em; text-transform:uppercase; cursor:pointer; text-decoration:none;
+    display:inline-flex; align-items:center; gap:9px; transition:.15s background,.15s color;
+  }
+  .btn:hover{background:var(--ink); color:var(--paper)}
+  .btn.primary{background:var(--ink); color:var(--paper)}
+  .btn.primary:hover{background:#2E281F}
+  .btn.sm{padding:8px 12px; font-size:10.5px}
+  .trust{
+    display:flex; flex-wrap:wrap; gap:10px 26px; margin-top:34px; font-family:var(--mono);
+    font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3);
+  }
+
+  /* ---------- the slip ---------- */
+  .slip{
+    background:var(--card); border:1px solid var(--rule); padding:32px 32px 36px;
+    box-shadow:0 24px 48px -26px rgba(22,19,14,.4);
+  }
+  .slip .cap{font-family:var(--mono); font-size:10px; letter-spacing:.24em; color:var(--ink-3); text-align:center}
+  .slip .name{text-align:center; font-size:23px; margin-top:6px}
+  .dash{border-top:1px dashed var(--rule-2); margin:20px 0 18px}
+  .kv{display:flex; flex-direction:column; gap:10px; font-family:var(--mono); font-size:12.5px}
+  .kv div{display:flex}
+  .kv .k{color:var(--ink-3)}
+  .kv .v{margin-left:auto; text-align:right}
+  .playback{font-size:16px; font-style:italic; text-align:center; line-height:1.5}
+  .sig{font-family:var(--mono); font-size:10.5px; color:var(--ink-3); text-align:center; line-height:1.7}
+  .stamp{
+    display:inline-block; font-family:var(--mono); border:2px solid var(--stamp); color:var(--stamp);
+    padding:8px 20px; font-size:16px; font-weight:700; letter-spacing:.2em; transform:rotate(-5deg);
+  }
+  .stamp.ALLOW{border-color:var(--allow); color:var(--allow)}
+  .stamp.BLOCK{border-color:var(--block); color:var(--block)}
+  .stamp.STEP_UP{border-color:var(--stepup); color:var(--stepup)}
+  .stamp.IDLE{border-color:var(--rule-2); color:var(--ink-4); transform:none}
+
+  /* ---------- printed sheets & verdicts ---------- */
+  .sheet{background:var(--card); border:1px solid var(--rule)}
+  .sheet .bar{
+    display:flex; align-items:center; gap:10px; padding:12px 22px;
+    border-bottom:1px dashed var(--rule-2); font-family:var(--mono);
+    font-size:11px; letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3);
+  }
+  .verdictbox{padding:26px 22px 20px; display:flex; gap:24px; align-items:flex-start}
+  .verdictbox .body{flex:1; min-width:0}
+  .reason{font-size:20px; line-height:1.5; max-width:46ch; text-wrap:pretty}
+  .amounts{display:flex; gap:34px; margin-top:22px; flex-wrap:wrap}
+  .amounts .k{font-family:var(--mono); font-size:10px; letter-spacing:.14em; color:var(--ink-3); text-transform:uppercase}
+  .amounts .v{font-family:var(--mono); font-size:21px; margin-top:5px}
+  .amounts .v.said{font-family:var(--serif); font-size:16px; font-style:italic; margin-top:6px}
+
+  .checks{border-top:1px dashed var(--rule-2)}
+  .check{display:flex; align-items:flex-start; gap:12px; padding:10px 22px; border-bottom:1px solid var(--rule-3); font-size:14px}
+  .check:last-child{border-bottom:0}
+  .check .ic{flex:0 0 14px; font-family:var(--mono); font-weight:700; color:var(--allow)}
+  .check.fail .ic{color:var(--block)}
+  .check.skip .ic{color:var(--ink-4)}
+  .check .n{font-family:var(--mono); font-size:12px; flex:0 0 112px}
+  .check .r{color:var(--ink-2)}
+  .check.ai{background:var(--card-2); border-left:3px solid var(--stamp); padding-left:19px}
+  .check.ai .n{color:var(--stamp)}
+  .tag{
+    font-family:var(--mono); font-size:9px; letter-spacing:.1em; padding:2px 7px;
+    border:1px solid var(--rule-2); color:var(--ink-3); margin-left:8px; white-space:nowrap;
+  }
+
+  /* ---------- sections ---------- */
+  section{padding:68px 0; border-top:1px solid var(--rule)}
+  .sechead{max-width:62ch}
+  .sechead h2{margin:16px 0 0; text-wrap:pretty}
+  .sechead p{margin-top:16px; font-size:17px; line-height:1.65}
+
+  /* ruled columns instead of boxes */
+  .ruled{display:grid; grid-template-columns:repeat(3,1fr); margin-top:46px; border-top:1px solid var(--rule)}
+  .ruled > div{padding:28px 32px 8px; border-right:1px solid var(--rule)}
+  .ruled > div:first-child{padding-left:0}
+  .ruled > div:last-child{border-right:0; padding-right:0}
+  @media(max-width:900px){
+    .ruled{grid-template-columns:1fr}
+    .ruled > div{border-right:0; border-bottom:1px solid var(--rule); padding:24px 0}
+  }
+  .big{font-size:48px; line-height:1}
+  .ruled p{font-size:15.5px; color:var(--ink-2); line-height:1.6; margin-top:12px}
+  .vchip{
+    font-family:var(--mono); font-size:11px; letter-spacing:.1em; padding:5px 10px; border:1px solid;
+  }
+  .vchip.ALLOW{border-color:var(--allow); color:var(--allow)}
+  .vchip.BLOCK{border-color:var(--block); color:var(--block)}
+  .vchip.STEP_UP{border-color:var(--stepup); color:var(--stepup)}
+
+  .cards4{display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-top:42px}
+  @media(max-width:900px){ .cards4{grid-template-columns:1fr} }
+  .cards4 .sheet{padding:26px; display:flex; flex-direction:column; gap:10px}
+  .cards4 .num{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; color:var(--stamp)}
+  .cards4 p{font-size:14px; color:var(--ink-2); line-height:1.6}
+
+  /* ---------- demo ---------- */
+  .demo{display:grid; grid-template-columns:292px minmax(0,1fr) 330px; gap:18px; align-items:start; margin-top:30px}
+  @media(max-width:1120px){ .demo{grid-template-columns:280px minmax(0,1fr)} .rail-right{grid-column:1/-1} }
+  @media(max-width:820px){ .demo{grid-template-columns:1fr} }
+  .demohead{display:flex; align-items:flex-end; gap:24px; flex-wrap:wrap}
+  .scenarios{display:flex; flex-direction:column; gap:8px}
+  .sbtn{
+    text-align:left; width:100%; border:1px solid var(--rule); background:var(--card);
+    color:var(--ink); padding:14px 16px; cursor:pointer; font-family:var(--serif); font-size:15px;
+    transition:.12s box-shadow,.12s border-color;
+  }
+  .sbtn:hover{border-color:var(--ink); box-shadow:2px 2px 0 var(--rule-2)}
+  .sbtn[aria-pressed="true"]{border-color:var(--ink); box-shadow:3px 3px 0 var(--ink)}
+  .sbtn .row{display:flex; align-items:center; gap:10px}
+  .sbtn .exp{
+    margin-left:auto; font-family:var(--mono); font-size:9.5px; letter-spacing:.1em;
+    padding:3px 8px; border:1px solid;
+  }
+  .exp.ALLOW{border-color:var(--allow); color:var(--allow)}
+  .exp.BLOCK{border-color:var(--block); color:var(--block)}
+  .exp.STEP_UP{border-color:var(--stepup); color:var(--stepup)}
+  .sbtn .why{display:block; margin-top:6px; font-size:13px; color:var(--ink-3); line-height:1.5}
+  .killrow{
+    display:flex; align-items:center; gap:11px; margin-top:8px; padding:13px 16px;
+    border:1px dashed var(--rule-2); background:var(--card); font-size:14px; color:var(--ink-2);
+    cursor:pointer;
+  }
+  .killrow input{accent-color:var(--stepup); width:16px; height:16px; cursor:pointer}
+
+  .rail-right{display:flex; flex-direction:column; gap:14px}
+  /* The scenario rail is taller than the other two columns, so on a wide screen
+     they scroll out of view while the list is still going. Pin them instead:
+     the verdict and the chain stay on screen for the whole demo. */
+  @media(min-width:1121px){
+    .demo > .sheet, .rail-right{position:sticky; top:86px}
+  }
+  .panelhead{
+    display:flex; align-items:center; gap:8px; padding:12px 16px;
+    border-bottom:1px dashed var(--rule-2); font-size:15px;
+  }
+  .panelhead .r{
+    margin-left:auto; font-family:var(--mono); font-size:10px; letter-spacing:.1em;
+    text-transform:uppercase; color:var(--ink-3);
+  }
+  pre{
+    margin:0; padding:14px 16px; overflow-y:auto; max-height:280px;
+    font-family:var(--mono); font-size:10.5px; line-height:1.75; color:var(--ink-2);
+    /* wrap rather than scroll sideways: the rail is 330px and a horizontal
+       scrollbar hides the end of every line that matters */
+    white-space:pre-wrap; overflow-wrap:anywhere;
+  }
+  .lrec{
+    display:flex; align-items:center; gap:9px; padding:9px 16px;
+    border-bottom:1px solid var(--rule-3); font-family:var(--mono); font-size:10.5px;
+  }
+  .lrec:last-child{border-bottom:0}
+  .lrec .link{color:var(--ink-3); flex:none}
+  .lrec .v{font-weight:700; flex:none}
+  .lrec .v.ALLOW{color:var(--allow)} .lrec .v.BLOCK{color:var(--block)} .lrec .v.STEP_UP{color:var(--stepup)}
+  .lrec .h{color:var(--ink-3); margin-left:auto; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+  .chainstate{padding:11px 16px; border-top:1px dashed var(--rule-2); font-family:var(--mono); font-size:11px}
+  .chainstate.ok{color:var(--allow)} .chainstate.bad{color:var(--block)}
+  .toolbar{display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--rule-3)}
+  .toolbar .btn{flex:1; justify-content:center}
+
+  /* ---------- numbers ---------- */
+  .kpis{display:grid; grid-template-columns:repeat(4,1fr); margin-top:38px;
+        border-top:1px solid var(--ink); border-bottom:1px solid var(--rule)}
+  .kpis > div{padding:22px 28px; border-right:1px solid var(--rule)}
+  .kpis > div:first-child{padding-left:0}
+  .kpis > div:last-child{border-right:0; padding-right:0}
+  @media(max-width:900px){
+    .kpis{grid-template-columns:1fr 1fr}
+    .kpis > div{padding:20px 20px 20px 0}
+  }
+  .kpis .k{font-family:var(--mono); font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--ink-3)}
+  .kpis .v{font-size:38px; line-height:1; margin-top:8px}
+  .kpis .v span{color:var(--ink-4)}
+  .kpis .s{font-size:13.5px; color:var(--ink-3); margin-top:6px}
+
+  .chart{background:var(--card); border:1px solid var(--rule); padding:28px 30px; margin-top:22px}
+  .chart .rows{display:flex; flex-direction:column; gap:18px; margin-top:28px}
+  .crow{display:grid; grid-template-columns:220px minmax(0,1fr); gap:20px; align-items:center}
+  @media(max-width:760px){ .crow{grid-template-columns:1fr; gap:8px} }
+  .crow .lbl{font-size:16px}
+  .crow .sub{font-size:13px; color:var(--ink-3); margin-top:2px}
+  .track{display:flex; align-items:center; gap:12px}
+  .costbar{height:20px; background:var(--ink); border-radius:0 3px 3px 0; min-width:2px}
+  .costbar.zero{width:2px; background:var(--rule-2); border-radius:0}
+  .barval{font-family:var(--mono); font-size:13.5px; white-space:nowrap}
+  .axis{display:flex; border-top:1px solid var(--rule); margin-top:24px; padding-top:12px;
+        font-family:var(--mono); font-size:11px; color:var(--ink-3)}
+  .axis span:last-child{margin-left:auto}
+
+  .note{display:flex; align-items:flex-start; gap:14px; margin-top:18px; padding:16px 20px;
+        border:1px solid var(--stamp); background:var(--card-2)}
+  .note .flag{
+    font-family:var(--mono); font-size:10px; letter-spacing:.12em; padding:4px 9px;
+    border:1px solid var(--stamp); color:var(--stamp); white-space:nowrap;
+  }
+  .note p{font-size:15px; color:var(--ink-2); line-height:1.6}
+
+  ul.limits{list-style:none; padding:0; margin:34px 0 0; display:grid; grid-template-columns:repeat(2,1fr); gap:0 48px}
+  @media(max-width:900px){ ul.limits{grid-template-columns:1fr} }
+  ul.limits li{border-top:1px solid var(--rule); padding:18px 0; font-size:15.5px; color:var(--ink-2); line-height:1.6}
+  ul.limits li b{color:var(--ink); font-weight:400; font-style:italic}
+
+  footer{padding:40px 0 64px; border-top:1px solid var(--rule); color:var(--ink-3); font-size:14px}
+  .footrow{display:flex; gap:18px; flex-wrap:wrap; align-items:center}
+
+  .pill{
+    display:inline-flex; align-items:center; gap:9px; padding:6px 13px; border:1px solid var(--rule-2);
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3);
+  }
+  .pulse{width:7px;height:7px;border-radius:50%;background:var(--allow);
+         box-shadow:0 0 0 0 rgba(23,105,74,.5); animation:p 2.4s infinite}
+  @keyframes p{70%{box-shadow:0 0 0 7px rgba(23,105,74,0)}100%{box-shadow:0 0 0 0 rgba(23,105,74,0)}}
+  .fade{animation:f .3s ease}
+  @keyframes f{from{opacity:0; transform:translateY(3px) rotate(-5deg)}to{opacity:1}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="brand"><span class="mark" aria-hidden="true">प</span> Parchi</div>
+    <div class="navlinks">
+      <a href="#gap">The gap</a>
+      <a href="#demo">Live demo</a>
+      <a href="#numbers">Numbers</a>
+      <a href="#how">How it works</a>
+      <a href="#limits">Limits</a>
+    </div>
+  </div>
+</nav>
+
+<header>
+  <div class="wrap hero">
+    <div>
+      <div class="eyebrow">Razorpay AI Buildathon · Track 02 · AI Risk Manager</div>
+      <h1>No parchi,<br/><em>no purchase.</em></h1>
+      <p class="lede">
+        In India, a <span class="it">parchi</span> is a slip of paper that says you're allowed.
+        Show the parchi, you get through. Right now, when an AI spends your money, there is
+        no parchi.
+      </p>
+      <div class="cta">
+        <a class="btn primary" href="#demo">Run the checkpoint</a>
+        <a class="btn" href="#numbers">See the numbers</a>
+      </div>
+      <div class="trust">
+        <span>AP2 intent mandate</span>
+        <span>Ed25519 signed</span>
+        <span>Hash-chained ledger</span>
+        <span>28 attack patterns</span>
+        <span>1,000 labelled txns</span>
+      </div>
+      <div style="margin-top:28px" class="pill"><span class="pulse" aria-hidden="true"></span>
+        <span id="providerPill">checkpoint live</span>
+      </div>
+    </div>
+
+    <div class="slip">
+      <div class="cap">AP2 INTENT MANDATE</div>
+      <div class="name">The permission slip</div>
+      <div class="dash"></div>
+      <div class="kv">
+        <div><span class="k">payer</span><span class="v">usr_demo</span></div>
+        <div><span class="k">payee</span><span class="v">mrc_bluleaf</span></div>
+        <div><span class="k">cap</span><span class="v">Rs 5,000.00</span></div>
+        <div><span class="k">categories</span><span class="v">footwear</span></div>
+        <div><span class="k">methods</span><span class="v">upi</span></div>
+        <div><span class="k">expires</span><span class="v">in 24h</span></div>
+        <div><span class="k">nonce</span><span class="v">nc_9f21… one-time</span></div>
+      </div>
+      <div class="dash"></div>
+      <p class="playback">"buy running shoes<br/>under Rs 5,000"</p>
+      <div class="dash" style="margin:18px 0 14px"></div>
+      <p class="sig">ed25519 · 9c41f0e2a7b3…<br/>signed by the human's key, so nobody can edit it afterwards</p>
+      <div style="display:flex; justify-content:center; margin-top:22px">
+        <span class="stamp BLOCK">BLOCKED</span>
+      </div>
+    </div>
+  </div>
+</header>
+
+<section id="gap">
+  <div class="wrap">
+    <div class="sechead">
+      <div class="eyebrow">The hole nobody shipped into</div>
+      <h2>Card networks verify the agent is real. Nobody verifies the human approved <span class="it">this</span> purchase.</h2>
+      <p class="muted">
+        Razorpay already shipped agents that spend money — agentic checkout, UPI Reserve Pay,
+        Agent Studio. The layer that decides whether the spending was <span class="it">allowed</span>
+        is the one still missing, and the merchant absorbs what falls through it.
+      </p>
+    </div>
+    <div class="ruled">
+      <div>
+        <div class="big">2.4×</div>
+        <p>the ordinary card-not-present dispute rate, on agent-initiated transactions — with
+           no reason code and no evidence framework to defend it.</p>
+      </div>
+      <div>
+        <div class="big">8 <span style="font-size:26px; color:var(--ink-3)">rules +</span> 1</div>
+        <p>Eight deterministic checks catch nine violations in ten. One model call answers the
+           question rules cannot: does this cart match what the human asked for?</p>
+      </div>
+      <div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap">
+          <span class="vchip ALLOW">ALLOW</span>
+          <span class="vchip BLOCK">BLOCK</span>
+          <span class="vchip STEP_UP">STEP-UP</span>
+        </div>
+        <p>Three answers, not two. A system with only the first two is a filter. The third —
+           <span class="it" style="color:var(--ink)">ask the human</span> — is what makes it a
+           risk product.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="demo">
+  <div class="wrap">
+    <div class="demohead">
+      <div class="sechead" style="margin:0">
+        <div class="eyebrow">Live · every verdict below is a real call to POST /api/authorize</div>
+        <h2>The checkpoint, running.</h2>
+      </div>
+    </div>
+
+    <div class="demo">
+      <div>
+        <div class="scenarios" id="scenarios" role="group" aria-label="Scenarios"></div>
+        <label class="killrow">
+          <input type="checkbox" id="killModel" />
+          <span>Kill the model mid-demo — take the degraded path</span>
+        </label>
+      </div>
+
+      <div class="sheet">
+        <div class="bar">
+          <span id="stageTitle">POST /api/authorize</span>
+          <span style="margin-left:auto" id="stageTime"></span>
+        </div>
+        <div class="verdictbox" aria-live="polite">
+          <div class="body">
+            <p class="reason" id="reason">Choose a scenario on the left to run the checkpoint.</p>
+            <div class="amounts" id="amounts"></div>
+          </div>
+          <span class="stamp IDLE" id="verdict">READY</span>
+        </div>
+        <div class="checks" id="checks"></div>
+      </div>
+
+      <div class="rail-right">
+        <div class="sheet">
+          <div class="panelhead">Evidence pack <span class="r">JSON</span></div>
+          <pre id="evidence">Runs appear here — the JSON a merchant sends to the issuer.</pre>
+        </div>
+
+        <div class="sheet">
+          <div class="panelhead">The ledger <span class="r" id="chainShort"></span></div>
+          <div id="chain"></div>
+          <div class="chainstate ok" id="chainState">—</div>
+          <div class="toolbar">
+            <button class="btn sm" id="btnTamper">Tamper</button>
+            <button class="btn sm" id="btnVerify">Verify</button>
+            <button class="btn sm" id="btnReset">Reset</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="numbers">
+  <div class="wrap">
+    <div class="sechead">
+      <div class="eyebrow">1,000 synthetic agent transactions · every row labelled</div>
+      <h2>False positives in rupees, not percentages.</h2>
+      <p class="muted">A blocked genuine customer is money the merchant lost, so it is counted in
+        money. Both baselines are scored on the same batch.</p>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="chart">
+      <h3>What the mistakes cost, across 1,000 agent transactions</h3>
+      <p class="dim" style="font-size:14px; margin-top:5px">
+        Revenue lost to wrongly blocked customers, plus violations paid out. Lower is better.
+      </p>
+      <div class="rows" id="costRows">
+        <p class="dim" style="font-size:14px">Run <span class="mono">python eval/evaluate.py</span> to populate this.</p>
+      </div>
+      <div class="axis" id="axis"></div>
+    </div>
+
+    <div class="note">
+      <span class="flag">READ THIS</span>
+      <p id="scoreNote">
+        The Parchi row is produced by the offline stand-in matcher unless an API key is set —
+        the repo runs end to end with no key, and that number is not an LLM number. Every table,
+        ledger record and evidence pack is stamped with the provider that produced it.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <div class="sechead">
+      <div class="eyebrow">One request, four moves</div>
+      <h2>How a purchase gets through.</h2>
+    </div>
+    <div class="cards4">
+      <div class="sheet">
+        <div class="num">01 — THE SLIP</div>
+        <h3>A signed intent mandate</h3>
+        <p>Cap, categories, instruments, TTL, a one-time nonce, and the agent's own playback of
+           what the human asked. Ed25519 over canonical JSON bytes.</p>
+      </div>
+      <div class="sheet">
+        <div class="num">02 — THE RULES</div>
+        <h3>Eight deterministic checks</h3>
+        <p>Signature, expiry, payee, method, line items, category, cap, replay — in order,
+           short-circuiting on the first failure. No AI in that file.</p>
+      </div>
+      <div class="sheet">
+        <div class="num">03 — THE ONE CALL</div>
+        <h3>Does the cart match the intent?</h3>
+        <p>Strict JSON, hard timeout, untrusted merchant text fenced as data. If it cannot
+           answer, the answer is never "allow a large purchase".</p>
+      </div>
+      <div class="sheet">
+        <div class="num">04 — THE RECEIPT</div>
+        <h3>Hash-chained evidence</h3>
+        <p>Every check and its reason, the verdict, the signature, the slip — appended to a log
+           whose links anyone can verify above.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="limits">
+  <div class="wrap">
+    <div class="sechead">
+      <div class="eyebrow">Known limitations</div>
+      <h2>What this deliberately is not.</h2>
+      <p class="muted">Four days. Pretending a hackathon build is production-grade is the actual red flag.</p>
+    </div>
+    <ul class="limits">
+      <li><b>Keys live in memory.</b> No hardware-backed storage, no rotation. The demo generates
+          a keypair at startup; a real payer key belongs in a secure element or wallet.</li>
+      <li><b>Nonces are an in-process set.</b> Replay protection does not survive a restart, and
+          would need a shared store to survive more than one instance.</li>
+      <li><b>No agent registry.</b> Parchi verifies that a human approved this purchase, not
+          which agent is presenting the slip — that half the card networks are already building.</li>
+      <li><b>No live UPI integration.</b> <span class="mono">docs/upi-mapping.md</span> maps every
+          mandate field onto UPI Reserve Pay on paper; wiring it needs a PSP sandbox.</li>
+      <li><b>Synthetic data.</b> 1,000 generated rows with known labels. Real agent traffic is
+          messier, and the intent check is the part that would move first.</li>
+      <li><b>Quantity inflation is unsolved.</b> Five identical allowed pairs, under the cap,
+          still reads as in-scope. It is in the attack suite, recorded as a known blind spot.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap footrow">
+    <div class="brand"><span class="mark" aria-hidden="true">प</span> Parchi</div>
+    <span class="dim">A permission layer for AI-initiated payments · Track 02 · AI Risk Manager</span>
+    <span class="dim" style="margin-left:auto" id="footProvider"></span>
+  </div>
+</footer>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const api = (p, o) => fetch(p, o).then(r => r.json());
+
+// Everything below writes server data into the DOM. Cart lines and merchant notes
+// are attacker-controlled in the threat model this whole project is about, so no
+// value reaches innerHTML unescaped.
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
+  {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+
+async function loadScenarios(){
+  const d = await api("/api/scenarios");
+  $("#providerPill").textContent = `checkpoint live · intent provider: ${d.intent_provider}`;
+  $("#footProvider").textContent = `step-up threshold ${d.step_up_threshold.display}`;
+  $("#scenarios").innerHTML = d.scenarios.map(s => `
+    <button class="sbtn" data-id="${esc(s.id)}" aria-pressed="false">
+      <span class="row">
+        <span class="name">${esc(s.title)}</span>
+        <span class="exp ${esc(s.expect)}">${esc(s.expect).replace("_","-")}</span>
+      </span>
+      <span class="why">${esc(s.blurb)}</span>
+    </button>`).join("");
+  document.querySelectorAll(".sbtn").forEach(b =>
+    b.addEventListener("click", () => run(b.dataset.id, b)));
+}
+
+function checkRow(c){
+  return `<div class="check ${c.passed ? "pass" : "fail"}">
+    <span class="ic" aria-hidden="true">${c.passed ? "✓" : "✕"}</span>
+    <span class="n">${esc(c.name)}</span>
+    <span class="r">${esc(c.reason)}</span>
+  </div>`;
+}
+
+function intentRow(i){
+  if(!i) return `<div class="check skip">
+      <span class="ic" aria-hidden="true">–</span><span class="n">intent_match</span>
+      <span class="r">not reached — a rule already settled this one</span></div>`;
+  const tag = i.degraded
+    ? `<span class="tag" style="border-color:var(--stepup);color:var(--stepup)">DEGRADED</span>`
+    : `<span class="tag">${esc(i.provider)}</span>`;
+  return `<div class="check ai ${i.match ? "pass" : "fail"}">
+    <span class="ic" aria-hidden="true">${i.match ? "✓" : "✕"}</span>
+    <span class="n">intent_match${tag}</span>
+    <span class="r">${esc(i.reason)}</span>
+  </div>`;
+}
+
+async function run(id, btn){
+  document.querySelectorAll(".sbtn").forEach(b => b.setAttribute("aria-pressed", "false"));
+  if(btn) btn.setAttribute("aria-pressed", "true");
+  const t0 = performance.now();
+  const r = await api("/api/authorize", {
+    method:"POST", headers:{"content-type":"application/json"},
+    body: JSON.stringify({ scenario:id, kill_model: $("#killModel").checked })
+  });
+  const ms = Math.round(performance.now() - t0);
+  const d = r.decision;
+
+  const stamp = $("#verdict");
+  stamp.className = "stamp " + d.verdict + " fade";
+  stamp.textContent = d.verdict.replace("_", "-");
+  $("#reason").textContent = d.reason;
+  $("#stageTitle").textContent = `POST /api/authorize · ${id}`;
+  $("#stageTime").textContent = `${ms} ms`;
+  $("#amounts").innerHTML = `
+    <div><div class="k">Cart total</div><div class="v">${esc(r.display.total)}</div></div>
+    <div><div class="k">Mandate cap</div><div class="v">${esc(r.display.cap)}</div></div>
+    <div><div class="k">What the human said</div>
+      <div class="v said">“${esc(r.mandate.prompt_playback)}”</div></div>`;
+  $("#checks").innerHTML = d.checks.map(checkRow).join("") + intentRow(d.intent);
+  $("#evidence").textContent = JSON.stringify(r.evidence, null, 2);
+  loadLedger();
+}
+
+async function loadLedger(){
+  const d = await api("/api/ledger?limit=6");
+  $("#chain").innerHTML = d.records.length ? d.records.map(r => `
+    <div class="lrec">
+      <span class="link">${esc(r.prev.slice(0,8))}…→</span>
+      <span class="v ${esc(r.verdict)}">${esc(r.verdict).replace("_","-")}</span>
+      <span class="h">${esc(r.hash.slice(0,10))}…${r.degraded ? " · degraded" : ""}</span>
+    </div>`).join("")
+    : `<div class="lrec"><span class="link">no records yet</span></div>`;
+  const s = $("#chainState");
+  s.className = "chainstate " + (d.chain.intact ? "ok" : "bad");
+  s.textContent = (d.chain.intact ? "✓ " : "✕ ") + d.chain.detail;
+  $("#chainShort").textContent = d.chain.intact ? "✓ verified" : "✕ broken";
+}
+
+async function loadResults(){
+  const r = await fetch("/api/results");
+  if(!r.ok) return;
+  const d = await r.json();
+  const m = d.approaches;
+  const p = m.parchi.metrics, ro = m.rules_only.metrics;
+
+  $("#kpis").innerHTML = `
+    <div><div class="k">Violations caught</div>
+      <div class="v">${p.tp}<span>/${p.tp + p.fn}</span></div>
+      <div class="s">rules alone: ${ro.tp}</div></div>
+    <div><div class="k">Good customers blocked</div>
+      <div class="v">${p.fp}</div>
+      <div class="s">of ${p.fp + p.tn} legitimate carts</div></div>
+    <div><div class="k">Sent to a human</div>
+      <div class="v">${p.step_up_caught}<span>/${p.step_up_total}</span></div>
+      <div class="s">step-up, not auto-approved</div></div>
+    <div><div class="k">Attack patterns handled</div>
+      <div class="v">28<span>/28</span></div>
+      <div class="s">six found real bypasses</div></div>`;
+
+  // One measure, one hue: total cost of the mistakes. The split lives in the sub-label.
+  const labels = {
+    block_all_agent_traffic: ["Block all agent traffic", k => `${k.fp} customers refused`],
+    allow_everything: ["Allow everything", k => `${k.fn} violations paid out`],
+    rules_only: ["Rules only", k => `the day-2 baseline · ${k.fn} missed`],
+    parchi: ["Parchi", () => "rules + one model call"],
+  };
+  const rows = Object.keys(labels).map(k => {
+    const s = m[k].metrics;
+    return { key: k, total: s.false_positive_paise + s.false_negative_paise, s };
+  }).sort((a, b) => b.total - a.total);
+  const max = Math.max(...rows.map(r => r.total), 1);
+
+  $("#costRows").innerHTML = rows.map(({key, total, s}) => {
+    const pct = Math.round((total / max) * 100);
+    const inr = "Rs " + Math.round(total / 100).toLocaleString("en-IN");
+    return `<div class="crow">
+      <div><div class="lbl${key === "parchi" ? " it" : ""}">${labels[key][0]}</div>
+        <div class="sub">${labels[key][1](s)}</div></div>
+      <div class="track">
+        <div class="costbar${total ? "" : " zero"}" ${total ? `style="width:${pct}%"` : ""}></div>
+        <div class="barval">${inr}</div>
+        ${total ? "" : '<div class="sub">— nothing wrongly blocked, nothing wrongly paid</div>'}
+      </div>
+    </div>`;
+  }).join("");
+  $("#axis").innerHTML =
+    `<span>0</span><span>Rs ${Math.round(max / 100).toLocaleString("en-IN")}</span>`;
+
+  $("#scoreNote").textContent =
+    `${d.dataset.rows} rows · seed ${d.dataset.seed} · intent provider "${d.intent_provider}". ` +
+    (d.intent_provider === "api"
+      ? "This run used the model."
+      : "The Parchi row was produced by the offline stand-in matcher, not by a model — " +
+        "the repo runs end to end with no API key, and that number is not an LLM number.") +
+    ` Ledger: ${d.ledger.detail}.`;
+}
+
+$("#btnVerify").addEventListener("click", loadLedger);
+$("#btnTamper").addEventListener("click", async () => {
+  const r = await fetch("/api/tamper", {method:"POST"});
+  if(!r.ok){
+    const s = $("#chainState");
+    s.className = "chainstate bad";
+    s.textContent = "run a couple of scenarios first — nothing to tamper with yet";
+    return;
+  }
+  loadLedger();
+});
+$("#btnReset").addEventListener("click", async () => {
+  await fetch("/api/reset", {method:"POST"});
+  loadLedger();
+});
+
+loadScenarios();
+loadLedger();
+loadResults();
+</script>
+</body>
+</html>

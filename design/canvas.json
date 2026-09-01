@@ -1,0 +1,24 @@
+{
+  "artboards": [
+    { "file": "Main.dc.html", "x": 0, "y": 0, "w": 1440, "h": 2760, "title": "Landing page" },
+    { "file": "Checkpoint.dc.html", "x": 1600, "y": 0, "w": 1440, "h": 940, "title": "Live demo section" },
+    { "file": "Scoreboard.dc.html", "x": 1600, "y": 1100, "w": 1440, "h": 900, "title": "Numbers section" }
+  ],
+  "annotations": [
+    {
+      "id": "brief",
+      "x": -420,
+      "y": 0,
+      "w": 300,
+      "text": "Parchi — 'the paper slip' direction, chosen.\n\nThe mandate is a physical object: cream ground, dashed rules, a vermillion stamp for the verdict. Serif for prose, mono for anything a machine produced.\n\nStatus colours are print-safe: green #17694A, vermillion #B4472B, ochre #8A6410 — all legible on cream and still distinct in greyscale."
+    },
+    {
+      "id": "film",
+      "x": 3120,
+      "y": 0,
+      "w": 280,
+      "text": "Built to film: the verdict is a stamp, the checks are a printed list, and the evidence pack and ledger sit beside the decision so one frame holds the whole story."
+    }
+  ],
+  "launch": { "view": "canvas" }
+}

@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #B4472B; text-decoration: none; }
+    a:hover { color: #8E3520; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  </style>
+</helmet>
+
+<div style="background: #F5F1E8; color: #16130E; font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; width: 1440px; padding: 56px 72px;">
+
+  <div class="mono" style="font-size: 11px; letter-spacing: 0.2em; color: #B4472B; text-transform: uppercase;">1,000 synthetic agent transactions · every row labelled</div>
+  <div style="font-size: 42px; font-weight: 400; letter-spacing: -0.025em; margin-top: 14px;">False positives in rupees, not percentages.</div>
+  <div style="font-size: 17px; color: #3E382D; margin-top: 12px; max-width: 66ch; line-height: 1.6;">
+    A blocked genuine customer is money the merchant lost, so it is counted in money. Both baselines are scored on the same batch.
+  </div>
+
+  <!-- KPI row, ruled like a ledger rather than boxed -->
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin-top: 38px; border-top: 1px solid #16130E; border-bottom: 1px solid #DCD4C2;">
+    <div style="padding: 22px 28px 22px 0; border-right: 1px solid #DCD4C2;">
+      <div class="mono" style="font-size: 10.5px; letter-spacing: 0.12em; color: #6B6151; text-transform: uppercase;">Violations caught</div>
+      <div style="font-size: 38px; margin-top: 8px; line-height: 1;">260<span style="color:#9E947F;">/260</span></div>
+      <div style="font-size: 13.5px; color: #6B6151; margin-top: 6px;">rules alone: 235</div>
+    </div>
+    <div style="padding: 22px 28px; border-right: 1px solid #DCD4C2;">
+      <div class="mono" style="font-size: 10.5px; letter-spacing: 0.12em; color: #6B6151; text-transform: uppercase;">Good customers blocked</div>
+      <div style="font-size: 38px; margin-top: 8px; line-height: 1;">0</div>
+      <div style="font-size: 13.5px; color: #6B6151; margin-top: 6px;">of 740 legitimate carts</div>
+    </div>
+    <div style="padding: 22px 28px; border-right: 1px solid #DCD4C2;">
+      <div class="mono" style="font-size: 10.5px; letter-spacing: 0.12em; color: #6B6151; text-transform: uppercase;">Sent to a human</div>
+      <div style="font-size: 38px; margin-top: 8px; line-height: 1;">40<span style="color:#9E947F;">/40</span></div>
+      <div style="font-size: 13.5px; color: #6B6151; margin-top: 6px;">step-up, not auto-approved</div>
+    </div>
+    <div style="padding: 22px 0 22px 28px;">
+      <div class="mono" style="font-size: 10.5px; letter-spacing: 0.12em; color: #6B6151; text-transform: uppercase;">Attack patterns handled</div>
+      <div style="font-size: 38px; margin-top: 8px; line-height: 1;">28<span style="color:#9E947F;">/28</span></div>
+      <div style="font-size: 13.5px; color: #6B6151; margin-top: 6px;">six found real bypasses</div>
+    </div>
+  </div>
+
+  <!-- the chart: one measure, one hue -->
+  <div style="background: #FFFDF7; border: 1px solid #DCD4C2; padding: 28px 30px; margin-top: 22px;">
+    <div style="font-size: 21px;">What the mistakes cost, across 1,000 agent transactions</div>
+    <div style="font-size: 14px; color: #6B6151; margin-top: 5px;">Revenue lost to wrongly blocked customers, plus violations paid out. Lower is better.</div>
+
+    <div style="display: flex; flex-direction: column; gap: 18px; margin-top: 28px;">
+
+      <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: center;">
+        <div>
+          <div style="font-size: 16px;">Block all agent traffic</div>
+          <div style="font-size: 13px; color: #6B6151; margin-top: 2px;">740 customers refused</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="height: 20px; width: 770px; background: #16130E; border-radius: 0 3px 3px 0;"></div>
+          <div class="mono" style="font-size: 13.5px;">₹34,43,816</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: center;">
+        <div>
+          <div style="font-size: 16px;">Allow everything</div>
+          <div style="font-size: 13px; color: #6B6151; margin-top: 2px;">260 violations paid out</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="height: 20px; width: 381px; background: #16130E; border-radius: 0 3px 3px 0;"></div>
+          <div class="mono" style="font-size: 13.5px;">₹17,05,171</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: center;">
+        <div>
+          <div style="font-size: 16px;">Rules only</div>
+          <div style="font-size: 13px; color: #6B6151; margin-top: 2px;">the day-2 baseline · 25 missed</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="height: 20px; width: 27px; background: #16130E; border-radius: 0 3px 3px 0;"></div>
+          <div class="mono" style="font-size: 13.5px;">₹1,20,785</div>
+        </div>
+      </div>
+
+      <div style="display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 20px; align-items: center;">
+        <div>
+          <div style="font-size: 16px; font-style: italic;">Parchi</div>
+          <div style="font-size: 13px; color: #6B6151; margin-top: 2px;">rules + one model call</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <div style="height: 20px; width: 2px; background: #C9BFA8;"></div>
+          <div class="mono" style="font-size: 13.5px;">₹0</div>
+          <div style="font-size: 13px; color: #6B6151;">— nothing wrongly blocked, nothing wrongly paid</div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="mono" style="border-top: 1px solid #DCD4C2; margin-top: 24px; padding-top: 12px; display: flex; font-size: 11px; color: #6B6151;">
+      <div>0</div>
+      <div style="margin-left: auto;">₹34,43,816</div>
+    </div>
+  </div>
+
+  <div style="display: flex; align-items: flex-start; gap: 14px; margin-top: 18px; padding: 16px 20px; border: 1px solid #B4472B; background: #F9F2E9;">
+    <div class="mono" style="font-size: 10px; letter-spacing: 0.12em; color: #B4472B; border: 1px solid #B4472B; padding: 4px 9px; white-space: nowrap;">READ THIS</div>
+    <div style="font-size: 15px; color: #3E382D; line-height: 1.6; max-width: 96ch;">
+      The Parchi row above was produced by the offline stand-in matcher, not by a model — the repo runs end to end with no API key, and that number is not an LLM number. Every table, ledger record and evidence pack is stamped with the provider that produced it.
+    </div>
+  </div>
+
+</div>
+</x-dc>
+</body>
+</html>

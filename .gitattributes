@@ -1,0 +1,14 @@
+# Normalise to LF in the repository. The CI workflow contains a shell heredoc:
+# a CRLF terminator would not match `PY` on a Linux runner and the job would hang.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.pdf binary
+
+# Generated, deterministic, and diffed by CI - keep it out of language stats and
+# out of pull-request diffs, but still versioned.
+data/transactions.jsonl linguist-generated=true -diff
+eval/results.json       linguist-generated=true

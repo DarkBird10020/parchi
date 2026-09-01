@@ -1,0 +1,16 @@
+{
+  "n": 1000,
+  "seed": 7,
+  "now": 1767225600,
+  "payer_public_key": "9e6f0842b168bbd1690c89ca0033eb89ac819ac27aa2e077524f2d6bceca26b8",
+  "cases": {
+    "in_scope": 700,
+    "over_cap": 80,
+    "wrong_category": 60,
+    "expired": 40,
+    "replay": 30,
+    "injection_cross_category": 25,
+    "injection_in_category": 25,
+    "high_value_legit": 40
+  }
+}

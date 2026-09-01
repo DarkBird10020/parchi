@@ -1,0 +1,231 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <style>
+    body { margin: 0; }
+    a { color: #B4472B; text-decoration: none; }
+    a:hover { color: #8E3520; }
+    .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  </style>
+</helmet>
+
+<!-- The demo section. Three panes so nothing is dead space:
+     scenario rail · the decision, printed like a receipt · evidence and the chain. -->
+<div style="background: #F5F1E8; color: #16130E; font-family: Georgia, 'Iowan Old Style', 'Times New Roman', serif; width: 1440px; padding: 56px 72px;">
+
+  <div style="display: flex; align-items: flex-end; gap: 24px; margin-bottom: 30px;">
+    <div>
+      <div class="mono" style="font-size: 11px; letter-spacing: 0.2em; color: #B4472B; text-transform: uppercase;">Live · every verdict is a real call to POST /api/authorize</div>
+      <div style="font-size: 42px; font-weight: 400; letter-spacing: -0.025em; margin-top: 14px;">The checkpoint, running.</div>
+    </div>
+    <div style="margin-left: auto; display: flex; align-items: center; gap: 11px; padding: 10px 16px; border: 1px dashed #C9BFA8; background: #FFFDF7;">
+      <div style="width: 15px; height: 15px; border: 1px solid #8A6410; background: rgba(138,100,16,0.14);"></div>
+      <div style="font-size: 14px; color: #3E382D;">Kill the model — take the degraded path</div>
+    </div>
+  </div>
+
+  <div style="display: grid; grid-template-columns: 292px minmax(0, 1fr) 330px; gap: 18px; align-items: start;">
+
+    <!-- scenario rail -->
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+
+      <div style="border: 1px solid #DCD4C2; background: #FFFDF7; padding: 14px 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="font-size: 15px;">In-scope purchase</div>
+          <div class="mono" style="margin-left: auto; font-size: 9.5px; letter-spacing: 0.1em; padding: 3px 8px; border: 1px solid #17694A; color: #17694A;">ALLOW</div>
+        </div>
+        <div style="font-size: 13px; color: #6B6151; margin-top: 6px; line-height: 1.5;">Footwear under ₹5,000. The cart is footwear at ₹4,200.</div>
+      </div>
+
+      <div style="border: 1px solid #DCD4C2; background: #FFFDF7; padding: 14px 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="font-size: 15px;">Over the cap</div>
+          <div class="mono" style="margin-left: auto; font-size: 9.5px; letter-spacing: 0.1em; padding: 3px 8px; border: 1px solid #B4472B; color: #B4472B;">BLOCK</div>
+        </div>
+        <div style="font-size: 13px; color: #6B6151; margin-top: 6px; line-height: 1.5;">Same slip, ₹12,000 cart. Settled before any model runs.</div>
+      </div>
+
+      <div style="border: 1px solid #16130E; background: #FFFDF7; padding: 14px 16px; box-shadow: 3px 3px 0 #16130E;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="font-size: 15px;">Injection on the product page</div>
+          <div class="mono" style="margin-left: auto; font-size: 9.5px; letter-spacing: 0.1em; padding: 3px 8px; border: 1px solid #B4472B; color: #B4472B;">BLOCK</div>
+        </div>
+        <div style="font-size: 13px; color: #6B6151; margin-top: 6px; line-height: 1.5;">Every rule passes. Only the one question rules cannot ask sees it.</div>
+      </div>
+
+      <div style="border: 1px solid #DCD4C2; background: #FFFDF7; padding: 14px 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="font-size: 15px;">Legitimate, but real money</div>
+          <div class="mono" style="margin-left: auto; font-size: 9.5px; letter-spacing: 0.1em; padding: 3px 8px; border: 1px solid #8A6410; color: #8A6410;">STEP-UP</div>
+        </div>
+        <div style="font-size: 13px; color: #6B6151; margin-top: 6px; line-height: 1.5;">Nothing is wrong with it. It is also ₹18,000 of someone else's money.</div>
+      </div>
+
+      <div style="border: 1px solid #DCD4C2; background: #FFFDF7; padding: 14px 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="font-size: 15px;">Payee substitution</div>
+          <div class="mono" style="margin-left: auto; font-size: 9.5px; letter-spacing: 0.1em; padding: 3px 8px; border: 1px solid #B4472B; color: #B4472B;">BLOCK</div>
+        </div>
+        <div style="font-size: 13px; color: #6B6151; margin-top: 6px; line-height: 1.5;">A valid slip for one shop, presented by another.</div>
+      </div>
+
+      <div style="border: 1px solid #DCD4C2; background: #FFFDF7; padding: 14px 16px;">
+        <div style="display: flex; align-items: center; gap: 10px;">
+          <div style="font-size: 15px;">Replayed slip</div>
+          <div class="mono" style="margin-left: auto; font-size: 9.5px; letter-spacing: 0.1em; padding: 3px 8px; border: 1px solid #B4472B; color: #B4472B;">BLOCK</div>
+        </div>
+        <div style="font-size: 13px; color: #6B6151; margin-top: 6px; line-height: 1.5;">The signature is perfect — that is the point. A one-time nonce stops it.</div>
+      </div>
+    </div>
+
+    <!-- the decision, printed -->
+    <div style="background: #FFFDF7; border: 1px solid #DCD4C2;">
+      <div class="mono" style="display: flex; align-items: center; gap: 10px; padding: 12px 22px; border-bottom: 1px dashed #C9BFA8; font-size: 11px; color: #6B6151; letter-spacing: 0.08em;">
+        <div>POST /API/AUTHORIZE · INJECTION</div>
+        <div style="margin-left: auto;">59 MS</div>
+      </div>
+
+      <div style="padding: 26px 22px 20px; display: flex; gap: 26px; align-items: flex-start;">
+        <div style="flex: 1;">
+          <div style="font-size: 20px; line-height: 1.5; max-width: 44ch;">
+            Cart does not match the authorised intent: <span style="color:#3E382D; font-style: italic;">'extended protection plan' is not something the human asked for.</span>
+          </div>
+          <div style="display: flex; gap: 34px; margin-top: 22px;">
+            <div>
+              <div class="mono" style="font-size: 10px; letter-spacing: 0.14em; color: #6B6151;">CART TOTAL</div>
+              <div class="mono" style="font-size: 21px; margin-top: 5px;">₹3,400.00</div>
+            </div>
+            <div>
+              <div class="mono" style="font-size: 10px; letter-spacing: 0.14em; color: #6B6151;">MANDATE CAP</div>
+              <div class="mono" style="font-size: 21px; margin-top: 5px;">₹5,000.00</div>
+            </div>
+            <div>
+              <div class="mono" style="font-size: 10px; letter-spacing: 0.14em; color: #6B6151;">WHAT THE HUMAN SAID</div>
+              <div style="font-size: 16px; font-style: italic; margin-top: 6px;">"buy running shoes under Rs 5,000"</div>
+            </div>
+          </div>
+        </div>
+        <div class="mono" style="border: 2px solid #B4472B; color: #B4472B; padding: 9px 20px; font-size: 17px; font-weight: 700; letter-spacing: 0.2em; transform: rotate(-4deg); margin-top: 6px;">BLOCK</div>
+      </div>
+
+      <div style="border-top: 1px dashed #C9BFA8;">
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">signature</div>
+          <div style="font-size: 14px; color: #3E382D;">mandate signature valid for the payer's key</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">expiry</div>
+          <div style="font-size: 14px; color: #3E382D;">mandate valid for another 23.5h</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">payee</div>
+          <div style="font-size: 14px; color: #3E382D;">payee 'mrc_bluleaf' matches the mandate</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">method</div>
+          <div style="font-size: 14px; color: #3E382D;">method 'upi' is authorised</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">line_items</div>
+          <div style="font-size: 14px; color: #3E382D;">2 lines, every amount positive and integral</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">category</div>
+          <div style="font-size: 14px; color: #3E382D;">every line is within ['footwear']</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">amount_cap</div>
+          <div style="font-size: 14px; color: #3E382D;">cart ₹3,400.00 is within the cap ₹5,000.00</div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 12px; padding: 10px 22px; border-bottom: 1px solid #EDE7D9;">
+          <div class="mono" style="width: 14px; color: #17694A; font-weight: 700;">✓</div>
+          <div class="mono" style="font-size: 12px; width: 112px;">nonce_replay</div>
+          <div style="font-size: 14px; color: #3E382D;">nonce unused — this mandate has not been spent</div>
+        </div>
+        <div style="display: flex; align-items: flex-start; gap: 12px; padding: 14px 22px; background: #F7EFE6; border-left: 3px solid #B4472B;">
+          <div class="mono" style="width: 14px; color: #B4472B; font-weight: 700;">✕</div>
+          <div style="display: flex; flex-direction: column; gap: 5px;">
+            <div style="display: flex; align-items: center; gap: 9px;">
+              <div class="mono" style="font-size: 12px; color: #B4472B;">intent_match</div>
+              <div class="mono" style="font-size: 9px; letter-spacing: 0.1em; padding: 2px 7px; border: 1px solid #C9BFA8; color: #6B6151;">CLAUDE-OPUS-5</div>
+            </div>
+            <div style="font-size: 14px;">'extended protection plan' is not something the human asked for</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- evidence + chain -->
+    <div style="display: flex; flex-direction: column; gap: 14px;">
+      <div style="background: #FFFDF7; border: 1px solid #DCD4C2;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px dashed #C9BFA8;">
+          <div style="font-size: 15px;">Evidence pack</div>
+          <div class="mono" style="margin-left: auto; font-size: 10px; letter-spacing: 0.1em; color: #6B6151;">JSON</div>
+        </div>
+        <div class="mono" style="padding: 14px 16px; font-size: 10.5px; line-height: 1.75; color: #3E382D; white-space: pre-line;">{
+  "schema": "parchi-evidence/1",
+  "verdict": "BLOCK",
+  "amount": { "display": "Rs 3,400.00" },
+  "mandate": { "prompt_playback": "…" },
+  "signature": "9c41f0…",
+  "checks": [ 8 entries ],
+  "intent_check": { "match": false },
+  "ledger_hash": "f0defdb16e59…",
+  "ledger_chain": { "intact": true }
+}</div>
+      </div>
+
+      <div style="background: #FFFDF7; border: 1px solid #DCD4C2;">
+        <div style="display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px dashed #C9BFA8;">
+          <div style="font-size: 15px;">The ledger</div>
+          <div class="mono" style="margin-left: auto; font-size: 10px; letter-spacing: 0.1em; color: #17694A;">✓ VERIFIED</div>
+        </div>
+        <div>
+          <div class="mono" style="display: flex; align-items: center; gap: 9px; padding: 9px 16px; border-bottom: 1px solid #EDE7D9; font-size: 10.5px;">
+            <span style="color: #6B6151;">00000000→</span>
+            <span style="font-weight: 700; color: #17694A;">ALLOW</span>
+            <span style="color: #6B6151; margin-left: auto;">6e607102…</span>
+          </div>
+          <div class="mono" style="display: flex; align-items: center; gap: 9px; padding: 9px 16px; border-bottom: 1px solid #EDE7D9; font-size: 10.5px;">
+            <span style="color: #6B6151;">6e607102→</span>
+            <span style="font-weight: 700; color: #B4472B;">BLOCK</span>
+            <span style="color: #6B6151; margin-left: auto;">b737e91e…</span>
+          </div>
+          <div class="mono" style="display: flex; align-items: center; gap: 9px; padding: 9px 16px; border-bottom: 1px solid #EDE7D9; font-size: 10.5px;">
+            <span style="color: #6B6151;">b737e91e→</span>
+            <span style="font-weight: 700; color: #8A6410;">STEP-UP</span>
+            <span style="color: #6B6151; margin-left: auto;">3a7c163a…</span>
+          </div>
+          <div class="mono" style="display: flex; align-items: center; gap: 9px; padding: 9px 16px; font-size: 10.5px;">
+            <span style="color: #6B6151;">3a7c163a→</span>
+            <span style="font-weight: 700; color: #B4472B;">BLOCK</span>
+            <span style="color: #6B6151; margin-left: auto;">796fd25d…</span>
+          </div>
+        </div>
+        <div class="mono" style="padding: 11px 16px; border-top: 1px dashed #C9BFA8; font-size: 11px; color: #17694A;">✓ chain intact across 4 records</div>
+        <div style="display: flex; gap: 8px; padding: 12px 16px; border-top: 1px solid #EDE7D9;">
+          <div class="mono" style="flex: 1; text-align: center; padding: 8px 0; border: 1px solid #16130E; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;">Tamper</div>
+          <div class="mono" style="flex: 1; text-align: center; padding: 8px 0; border: 1px solid #16130E; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;">Verify</div>
+          <div class="mono" style="flex: 1; text-align: center; padding: 8px 0; border: 1px solid #16130E; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase;">Reset</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</x-dc>
+</body>
+</html>

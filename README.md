@@ -51,8 +51,8 @@ can prove what was authorised when a customer says *"my agent did that, I didn't
 
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Results](#results) ·
 [The demo](#the-demo) · [Adversarial testing](#adversarial-testing) ·
-[The slip](#the-slip) · [Repo layout](#repo-layout) ·
-[Known limitations](#known-limitations)
+[The slip](#the-slip) · [Why this and not the alternative](#why-this-and-not-the-obvious-alternative) ·
+[Repo layout](#repo-layout) · [Known limitations](#known-limitations)
 
 ---
 
@@ -340,6 +340,31 @@ not present at purchase time. This prototype does not claim AP2 wire-format conf
 Pay**, including the two fields the rail has no equivalent for —
 `allowed_categories` and `prompt_playback` — which are exactly the two Parchi spends
 its intelligence on.
+
+---
+
+## Why this and not the obvious alternative
+
+Every row is a decision that could have gone the other way. Several of them *did*,
+and the entry in [FAILURES.md](FAILURES.md) is what changed my mind.
+
+| Decision | The obvious alternative | Why not |
+| :--- | :--- | :--- |
+| **Ed25519** signatures | HMAC with a shared secret | HMAC requires the verifier to hold the key that can also *mint* mandates. A merchant checkpoint that can forge the human's permission is not a permission layer. Public-key verification means the merchant can check the slip and can never write one. |
+| **Rules first, model second** | One model call that decides everything | Rules are faster, free, auditable and cannot be talked out of a verdict by the cart they are reading. The model is asked the *single* question arithmetic cannot answer. |
+| **The cap is never shown to the model** | Give it the limit so it has full context | It re-enforced the cap and got it wrong — blocking a ₹4,077 cart as "exceeds ₹5,000". Precision fell to 57%. Comparing two numbers is the one job a model should never be given here. *(entry 10)* |
+| **Three verdicts** | ALLOW / BLOCK | Two verdicts make a filter. The third — ask the human — is what makes it a risk product, and it is where the expensive-but-legitimate carts go instead of being refused. |
+| **Degraded → STEP_UP** | Fail closed with BLOCK | "Fail closed" implemented as BLOCK destroyed ₹6,22,472 of legitimate revenue. The intent check didn't find something wrong, it found *nothing at all* — refusing on "I could not check" throws away a customer to avoid a risk never established. *(entry 4)* |
+| **Nonce burns when the rules pass**, whatever the verdict | Burn it only on ALLOW | Otherwise a blocked cart leaves a live mandate behind for a second attempt with a smaller cart. The slip is spent because it was *presented*, not because it succeeded. |
+| **Integer paise everywhere** | Rupees as float, or Decimal | Floats lose money at the boundary and `0.1 + 0.2` decides a payment. Decimal is correct but invites mixed-type arithmetic; integers make the wrong thing impossible rather than merely discouraged. |
+| **Hash-chained JSONL** | Postgres with an audit table | A database row can be updated by whoever owns the database. The chain makes tampering *detectable by the reader*, which is the only property worth claiming, and it needs no service to verify. |
+| **`norm()` folds case and width but NOT confusables** | Fold everything to be lenient | `"UPI"` and `" footwear "` are integration variance and must pass. A Cyrillic `о` is an attack and must fail. Folding both would trade a real defence for cosmetic tidiness. |
+| **Empty fields omitted from canonical bytes** | Sign every field always | Lets an optional field be added later without invalidating every mandate already signed. Verified safe: adding, stripping or swapping `allowed_agent_id` all break the signature. |
+| **Strict `json_schema`**, not `json_object` | Trust the prompt and parse defensively | Measured on one cart, 32 calls each: `json_object` 29/32 usable, strict schema **32/32**. The failures were `{"answer": false}` — right verdict, no reason. Constrain the shape at the source rather than teach the parser to guess. *(entry 14)* |
+| **Hand-rolled `http.client`** | The `openai` SDK | This call sits in front of a payment, so the wall-clock timeout must be exact with no library retry hiding inside it. The request body is four keys; the SDK buys nothing and costs a dependency. |
+| **One connection per thread** | One shared pooled connection | `http.client` is not thread-safe and uvicorn uses a threadpool: a shared socket returned one thread's response to another. `threading.local` keeps the DNS win without the race. *(entry 14)* |
+| **A hand-written held-out set** | Trust the 1,000-row generator | The generator encodes the same policy the engine does, so scoring against it alone measures agreement with myself. [`eval/heldout.py`](eval/heldout.py) is written by hand, against the spec, not the code. |
+| **Seeded `mandate_id` / `nonce` in the generator only** | Always random, or always fixed | A predictable nonce is a replay vulnerability, so `uuid4` stays the default. Injectable *only* so a fixed-seed batch is byte-reproducible — without it the README's numbers silently stop being checkable. *(entry 7)* |
 
 ---
 

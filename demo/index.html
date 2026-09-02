@@ -291,9 +291,33 @@
   @keyframes p{70%{box-shadow:0 0 0 7px rgba(23,105,74,0)}100%{box-shadow:0 0 0 0 rgba(23,105,74,0)}}
   .fade{animation:f .3s ease}
   @keyframes f{from{opacity:0; transform:translateY(3px) rotate(-5deg)}to{opacity:1}}
+
+/* Notifications. The verdict panel is below the fold once you have scrolled to
+   the ledger, and a refund or a broken chain is exactly the moment you must not
+   miss. These sit above everything and announce themselves to screen readers. */
+#toasts{position:fixed; top:16px; right:16px; z-index:99; display:flex;
+        flex-direction:column; gap:10px; max-width:min(400px, calc(100vw - 32px));
+        pointer-events:none}
+.toast{pointer-events:auto; background:var(--card); border:1px solid var(--rule);
+       border-left:5px solid var(--ink-3); border-radius:3px; padding:13px 15px;
+       box-shadow:0 8px 28px rgba(22,19,14,.16); animation:slidein .22s ease}
+.toast.alarm{border-left-color:var(--block); background:#FFF6F3}
+.toast.money{border-left-color:var(--stepup); background:#FFFBF0}
+.toast.good{border-left-color:var(--allow)}
+.toast .th{display:flex; align-items:center; gap:8px; font-weight:700;
+           font-size:13px; letter-spacing:.02em}
+.toast .tx{margin-top:5px; font-size:13px; line-height:1.45; color:var(--ink-2)}
+.toast .tm{margin-top:7px; font:11px/1.5 var(--mono); color:var(--ink-3);
+           word-break:break-word}
+.toast .tc{margin-left:auto; border:0; background:none; cursor:pointer;
+           font-size:17px; line-height:1; color:var(--ink-4); padding:0 2px}
+.toast .tc:hover{color:var(--ink)}
+@keyframes slidein{from{opacity:0; transform:translateX(14px)} to{opacity:1; transform:none}}
+@media (prefers-reduced-motion: reduce){ .toast{animation:none} }
 </style>
 </head>
 <body>
+<div id="toasts" role="region" aria-label="Notifications" aria-live="assertive"></div>
 
 <nav>
   <div class="wrap">
@@ -426,6 +450,7 @@
         <div class="toolbar" id="authorizationActions" hidden>
           <button class="btn primary" id="btnApprove" hidden>Approve step-up</button>
           <button class="btn primary" id="btnPay" hidden>Pay with Razorpay test mode</button>
+        <button class="btn" id="btnSettle" hidden>Merchant ships the order</button>
           <span class="dim" id="authorizationStatus" aria-live="polite"></span>
         </div>
         <div class="checks" id="checks"></div>
@@ -607,6 +632,73 @@ function intentRow(i){
   </div>`;
 }
 
+// ---------------------------------------------------------------- notifications
+// Auto-dismiss, but never for the ones that cost money: a refund or a broken
+// chain stays until someone closes it.
+function notify(kind, title, text, mono){
+  const box = document.createElement("div");
+  box.className = "toast " + kind;
+  box.setAttribute("role", "alert");
+  box.innerHTML = `<div class="th"><span>${esc(title)}</span>
+      <button class="tc" aria-label="Dismiss notification">&times;</button></div>
+    <div class="tx">${esc(text)}</div>` +
+    (mono ? `<div class="tm">${esc(mono)}</div>` : "");
+  box.querySelector(".tc").addEventListener("click", () => box.remove());
+  $("#toasts").appendChild(box);
+  if(kind !== "alarm" && kind !== "money"){
+    setTimeout(() => box.remove(), 6000);
+  }
+}
+
+// A refused purchase is only useful if the person whose money it is finds out
+// why. The reason string is the one the engine produced, not a rewrite.
+function notifyVerdict(scenarioId, d){
+  if(d.verdict === "BLOCK"){
+    const failed = (d.checks || []).find(c => !c.passed);
+    notify("alarm", "Purchase declined",
+      failed && failed.name === "category"
+        ? "The agent tried to buy something outside the categories you approved."
+        : "Parchi refused this purchase before any money moved.",
+      d.reason);
+  } else if(d.verdict === "STEP_UP"){
+    notify("money", "Your approval is needed", "Nothing is wrong with this cart, "
+      + "but it is above the amount you allowed an agent to spend on its own.", d.reason);
+  }
+}
+
+// ---------------------------------------------------------------- settlement
+// The checkpoint runs before the money moves. This is the second look, after it.
+async function settleAuthorization(){
+  if(!currentAuthorization) return;
+  const btn = $("#btnSettle");
+  btn.disabled = true;
+  try {
+    const r = await api("/api/settle", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({ txn_id: currentAuthorization })
+    });
+    if(r.matched){
+      notify("good", "Delivery matches the slip",
+        "What the merchant shipped is what you authorised.", null);
+    } else {
+      const got = r.delivered.lines.map(l => l.description).join(", ");
+      notify("money", "Refund issued automatically",
+        "The merchant shipped something other than what you approved, so "
+        + r.refund.display + " has gone back to you. Nobody had to notice or complain.",
+        "delivered: " + got + "  |  " + r.refund.reason);
+      $("#verdict").className = "stamp BLOCK fade";
+      $("#verdict").textContent = "REFUNDED";
+      $("#reason").textContent = "Settlement did not match the signed mandate. "
+        + r.refund.display + " refunded.";
+    }
+    loadLedger();
+  } catch(error){
+    notify("alarm", "Settlement check failed", error.message, null);
+  } finally {
+    btn.disabled = false;
+    btn.hidden = true;
+  }
+}
 async function run(id, btn){
   document.querySelectorAll(".sbtn").forEach(b => b.setAttribute("aria-pressed", "false"));
   if(btn) btn.setAttribute("aria-pressed", "true");
@@ -640,13 +732,18 @@ async function run(id, btn){
     <div><div class="k">Mandate cap</div><div class="v">${esc(r.display.cap)}</div></div>
     <div><div class="k">What the human said</div>
       <div class="v said">“${esc(r.mandate.prompt_playback)}”</div></div>`;
+  notifyVerdict(id, d);
   $("#checks").innerHTML = d.checks.map(checkRow).join("") + intentRow(d.intent);
   $("#evidence").textContent = JSON.stringify(r.evidence, null, 2);
   currentAuthorization = r.authorization_id;
   currentApprovalToken = r.approval_token;
   $("#btnApprove").hidden = r.state !== "PENDING";
   $("#btnPay").hidden = !razorpayConfigured || r.state !== "ALLOW";
-  actions.hidden = $("#btnApprove").hidden && $("#btnPay").hidden;
+  // Only an authorised purchase can be settled, which is the whole gap this
+  // button exists to show: the checkpoint said yes, and the box still turns up
+  // with the wrong thing in it.
+  $("#btnSettle").hidden = r.state !== "ALLOW";
+  actions.hidden = $("#btnApprove").hidden && $("#btnPay").hidden && $("#btnSettle").hidden;
   loadLedger();
 }
 
@@ -806,7 +903,7 @@ async function loadResults(){
       <div><div class="lbl${key === "parchi" ? " it" : ""}">${labels[key][0]}</div>
         <div class="sub">${labels[key][1](s)}</div></div>
       <div class="track">
-        <div class="costbar${total ? "" : " zero"}" ${total ?  MASK14  : ""}></div>
+        <div class="costbar${total ? "" : " zero"}" ${total ? `style="width:${pct}%"` : ""}></div>
         <div class="barval">${inr}</div>
         ${total ? "": '<div class="sub">: nothing wrongly blocked, nothing wrongly paid</div>'}
       </div>
@@ -827,14 +924,22 @@ async function loadResults(){
 $("#btnVerify").addEventListener("click", loadLedger);
 $("#btnApprove").addEventListener("click", approveStepUp);
 $("#btnPay").addEventListener("click", startPayment);
+$("#btnSettle").addEventListener("click", settleAuthorization);
 $("#btnTamper").addEventListener("click", async () => {
   const r = await fetch("/api/tamper", {method:"POST"});
   if(!r.ok){
     const s = $("#chainState");
     s.className = "chainstate bad";
     s.textContent = "run a couple of scenarios first: nothing to tamper with yet";
+    notify("alarm", "Nothing to tamper with",
+      "Run a scenario or two first, then edit the log.", null);
     return;
   }
+  const t = await r.json();
+  notify("alarm", "Audit log has been altered",
+    "Someone edited a past verdict in the ledger. The hash chain no longer "
+    + "matches, so the record can be proven false rather than quietly trusted.",
+    (t.chain && t.chain.detail) ? t.chain.detail : "chain broken");
   loadLedger();
 });
 $("#btnReset").addEventListener("click", async () => {

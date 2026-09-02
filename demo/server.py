@@ -22,7 +22,7 @@ from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
 from parchi.agents import AgentRegistry
-from parchi.checks import CheckResult, NonceStore
+from parchi.checks import CheckResult, NonceStore, run_all
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Decision, Engine
 from parchi.evidence import build_pack
 from parchi.intent_match import resolve_provider
@@ -164,6 +164,14 @@ SCENARIOS = {
         "expect": "BLOCK",
         "blurb": "The mandate names the allowed agent. A different agent's signature blocks the cart.",
     },
+    "wrong_category": {
+        "title": "Product outside the authorised category",
+        "human_said": "buy running shoes under Rs 5,000",
+        "agent_did": "wireless earbuds, Rs 3,400, comfortably under the cap",
+        "expect": "BLOCK",
+        "blurb": "Cheap, in budget, and nothing the human asked for. The category list is "
+                 "the difference between a budget and a permission.",
+    },
 }
 
 
@@ -201,6 +209,8 @@ def build_case(scenario: str, now: int | None = None):
         unsigned = Cart((CartLine("running shoes", "footwear", 420_000),), "card", "mrc_bluleaf", agent_id=AGENT_ID)
     elif scenario == "payee_substitution":
         unsigned = Cart((CartLine("running shoes", "footwear", 420_000),), "upi", "mrc_notbluleaf", agent_id=AGENT_ID)
+    elif scenario == "wrong_category":
+        unsigned = Cart((CartLine("wireless earbuds", "electronics", 340_000),), "upi", "mrc_bluleaf", agent_id=AGENT_ID)
     elif scenario == "quantity_inflation":
         # Keep the total under the cap so the intent check, not the amount check, catches it.
         unsigned = Cart((CartLine("running shoes", "footwear", 80_000, quantity=5),), "upi", "mrc_bluleaf", agent_id=AGENT_ID)
@@ -617,6 +627,94 @@ async def razorpay_webhook(request: Request):
         degraded=False, intent=None,
     )
     return {"ok": True, "event": kind, "matched": True, "authorization_id": txn_id}
+
+
+class SettleRequest(BaseModel):
+    txn_id: str
+
+
+@app.post("/api/settle")
+def settle(req: SettleRequest):
+    """Re-check what the merchant actually shipped against the slip the human signed.
+
+    The checkpoint runs before authorisation, which leaves a real gap: an agent can
+    be authorised for one thing and the merchant can settle a different thing. The
+    signed mandate is still the record of what the human agreed to, so it can be
+    checked a second time when fulfilment arrives.
+
+    On a mismatch the money goes back. Nobody is asked to notice: the same rules
+    that would have refused the cart up front refuse it on the way out, and the
+    refund is the consequence rather than a customer service decision.
+    """
+    with state_lock:
+        record = authorizations.get(req.txn_id)
+        if record is None:
+            raise HTTPException(404, "authorization not found")
+        if record["state"] not in ("ALLOW", "CAPTURED"):
+            raise HTTPException(409, f"nothing to settle: authorization is {record['state']}")
+        if record.get("settled"):
+            raise HTTPException(409, "this authorization has already been settled")
+
+    mandate = record["mandate"]
+    authorised = record["cart"]
+
+    # What the merchant actually shipped. The agent was authorised for footwear
+    # and a box of electronics turns up, at a price close enough that no amount
+    # rule would notice.
+    delivered = _sign_demo_cart(Cart(
+        (CartLine("wireless earbuds (substituted)", "electronics", 390_000),),
+        authorised.method, authorised.payee_id, agent_id=AGENT_ID,
+    ))
+
+    # A fresh nonce store: the mandate's nonce was legitimately spent at
+    # authorisation, and replay is not what is being tested here.
+    checks = run_all(mandate, record["signature"], trusted_keys[mandate.payer_id],
+                     delivered, NonceStore(), agents=agents)
+    failed = next((c for c in checks if not c.passed), None)
+    matched = failed is None
+
+    refund = None
+    if not matched:
+        refund = {
+            "amount_paise": delivered.total_paise,
+            "display": rupees(delivered.total_paise),
+            "reason": failed.reason,
+            "check": failed.name,
+        }
+        if razorpay is not None and record.get("payment_id"):
+            refund["razorpay"] = "test-mode refund would be issued here"
+
+    with state_lock:
+        record["settled"] = True
+        record["delivered"] = delivered
+        if not matched:
+            record["state"] = "REFUNDED"
+            record["refund"] = refund
+
+    engine.ledger.append(
+        mandate_id=mandate.mandate_id,
+        txn={"txn_id": req.txn_id, "payee_id": delivered.payee_id,
+             "method": delivered.method, "total_paise": delivered.total_paise,
+             "lines": [ln.to_dict() for ln in delivered.lines],
+             "stage": "settlement"},
+        checks=[c.to_dict() for c in checks],
+        verdict="REFUNDED" if not matched else "SETTLED",
+        degraded=False,
+        intent=None,
+    )
+
+    return {
+        "authorization_id": req.txn_id,
+        "state": record["state"],
+        "matched": matched,
+        "authorised": {"lines": [ln.to_dict() for ln in authorised.lines],
+                       "display": rupees(authorised.total_paise)},
+        "delivered": {"lines": [ln.to_dict() for ln in delivered.lines],
+                      "display": rupees(delivered.total_paise)},
+        "refund": refund,
+        "checks": [c.to_dict() for c in checks],
+        "ledger": dict(zip(("intact", "detail", "records"), verify_chain(LEDGER_PATH), strict=True)),
+    }
 
 
 @app.get("/api/ledger")

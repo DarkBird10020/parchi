@@ -16,7 +16,7 @@
 
 <div align="center">
 
-🎬 **[Watch the 5-minute pitch](docs/pitch-video.md)** · **[SUBMISSION.md](docs/submission.md)**
+**[Pitch script](docs/pitch-video.md)** · **[Submission notes](docs/submission.md)** · **[What broke](FAILURES.md)**
 
 </div>
 
@@ -220,10 +220,40 @@ any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLO
 python demo/server.py     # → http://127.0.0.1:8000
 ```
 
-Ten scenarios, each a real `POST /api/authorize`. Every check and its reason is
+Eleven scenarios, each a real `POST /api/authorize`. Every check and its reason is
 shown, the evidence pack is the JSON a merchant would send to an issuer, and the
 ledger pane verifies its own hash chain, with a **Tamper** button, because showing
 it beats claiming it.
+
+Three of those moments raise a notification on screen, because a verdict nobody
+sees is not a control:
+
+| What happens | What the person is told |
+|:--- |:--- |
+| The agent buys outside the approved categories | *"The agent tried to buy something outside the categories you approved"*, with the engine's own reason underneath |
+| Someone edits a past verdict in the log | *"Audit log has been altered"*, naming the record whose hash stopped matching |
+| The merchant ships something else | *"Refund issued automatically"*, with the amount that went back |
+
+### The second checkpoint, after the money moves
+
+The checks run **before** authorisation, which leaves a real gap: an agent can be
+authorised for one thing and the merchant can settle a different thing. The signed
+mandate is still the record of what the human agreed to, so `POST /api/settle`
+checks fulfilment against that same mandate and refunds on a mismatch.
+
+Click **Merchant ships the order** after an approved purchase. The delivery is
+wireless earbuds, the slip said footwear, and the same category rule that would
+have refused the cart up front refuses it on the way out:
+
+```
+authorised: running shoes              Rs 4,200.00
+delivered : wireless earbuds           Rs 3,900.00
+verdict   : REFUNDED
+reason    : cart contains ['electronics'], outside allowed categories ['footwear']
+```
+
+Nobody has to notice. The refund is a consequence of the rule, not a customer
+service decision, and it is written into the hash chain like any other verdict.
 
 `POST /api/authorizations` also accepts a caller-supplied signed mandate and cart,
 while resolving the payer key from server trust state. `STEP_UP` decisions can be

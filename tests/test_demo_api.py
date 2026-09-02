@@ -189,3 +189,56 @@ def test_webhook_without_configuration_returns_503(monkeypatch):
         headers={"Content-Type": "application/json", "X-Razorpay-Signature": "x"},
     )
     assert response.status_code == 503
+
+
+def test_a_product_outside_the_category_is_declined_with_a_readable_reason():
+    """The reason string ends up in front of a customer, so it has to name the
+    thing that went wrong rather than a check id."""
+    r = client.post("/api/authorize", json={"scenario": "wrong_category"})
+    assert r.status_code == 200
+    decision = r.json()["decision"]
+    assert decision["verdict"] == "BLOCK"
+    failed = next(c for c in decision["checks"] if not c["passed"])
+    assert failed["name"] == "category"
+    assert "electronics" in failed["reason"] and "footwear" in failed["reason"]
+
+
+def test_a_substituted_delivery_is_refunded_without_anyone_complaining():
+    """The checkpoint runs before the money moves, which leaves a gap: an agent
+    can be authorised for one thing and the merchant can ship another. The signed
+    mandate is still the record of what was agreed, so it is checked again."""
+    authorized = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    assert authorized["decision"]["verdict"] == "ALLOW"
+
+    r = client.post("/api/settle", json={"txn_id": authorized["authorization_id"]})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["matched"] is False
+    assert body["state"] == "REFUNDED"
+    assert body["refund"]["check"] == "category"
+    assert body["refund"]["amount_paise"] > 0
+    # The refund is a ledger record like any other verdict, not a side note.
+    assert body["ledger"]["intact"] is True
+
+
+def test_a_settlement_cannot_be_replayed_to_refund_twice():
+    authorized = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    txn = authorized["authorization_id"]
+    assert client.post("/api/settle", json={"txn_id": txn}).status_code == 200
+    again = client.post("/api/settle", json={"txn_id": txn})
+    assert again.status_code == 409
+
+
+def test_a_blocked_purchase_has_nothing_to_settle():
+    blocked = client.post("/api/authorize", json={"scenario": "over_cap"}).json()
+    r = client.post("/api/settle", json={"txn_id": blocked["authorization_id"]})
+    assert r.status_code == 404
+
+
+def test_the_refund_verdict_is_written_into_the_hash_chain():
+    authorized = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    client.post("/api/settle", json={"txn_id": authorized["authorization_id"]})
+    ledger = client.get("/api/ledger?limit=20").json()
+    verdicts = [rec["verdict"] for rec in ledger["records"]]
+    assert "REFUNDED" in verdicts
+    assert ledger["chain"]["intact"] is True

@@ -126,6 +126,7 @@ jobs:
               "step_up": "STEP_UP", "expired": "BLOCK", "wrong_method": "BLOCK",
               "payee_substitution": "BLOCK", "replay": "BLOCK",
               "quantity_inflation": "BLOCK", "agent_substitution": "BLOCK",
+              "wrong_category": "BLOCK",
           }
           # Every scenario the page offers must be covered here: one added to the
           # server and forgotten here is a scenario nothing checks.

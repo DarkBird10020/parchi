@@ -30,6 +30,7 @@ from parchi.mandate import (
     sign,
     sign_cart,
 )
+from parchi.pricing import Coupon, CouponBook, PriceBook
 
 NOW = 1_767_225_600
 KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
@@ -399,6 +400,160 @@ def main() -> int:
 # pytest entry points
 def test_no_attack_pattern_gets_through():
     assert main() == 0
+
+
+
+# The merchant's own book of what it will honour, and what it charges. Attacks
+# below claim values that are not in either.
+def books():
+    coupons = CouponBook([
+        Coupon("SAVE10", percent_off=10, max_discount_paise=50_000,
+               min_spend_paise=100_000),
+        Coupon("FLAT500", flat_paise=50_000, min_spend_paise=300_000),
+        Coupon("SHOES20", percent_off=20, categories=("footwear",),
+               min_spend_paise=100_000),
+        Coupon("LOYALTY", kind="loyalty", flat_paise=20_000),
+        Coupon("LASTYEAR", flat_paise=100_000, expires_at=NOW - 86_400),
+    ])
+    prices = PriceBook({"running shoes": 420_000, "wireless earbuds": 340_000})
+    return coupons, prices
+
+
+def priced_eng(**over):
+    coupons, prices = books()
+    kw = dict(coupons=coupons, prices=prices)
+    kw.update(over)
+    return eng(**kw)
+
+
+def _signed():
+    """A fresh mandate and its signature, for patterns that need no special slip."""
+    m = a_mandate()
+    return m, sign(m, KEY)
+
+
+def discounted_cart(code: str, claimed: int, lines=None, agent_key=AGENT_KEY):
+    lines = lines or [CartLine("running shoes", "footwear", 420_000)]
+    unsigned = Cart(tuple(lines), "upi", "mrc_bluleaf", "",
+                    agent_id=HONEST_AGENT, discount_code=code,
+                    discount_paise=claimed)
+    if agent_key is None:
+        return unsigned
+    return Cart(unsigned.lines, unsigned.method, unsigned.payee_id,
+                unsigned.merchant_note, agent_id=HONEST_AGENT,
+                agent_signature=sign_cart(unsigned, agent_key),
+                discount_code=code, discount_paise=claimed)
+
+
+# ---------------------------------------------------------------------------
+# claimed value: coupons, loyalty, and line prices
+#
+# Everything above asks whether the cart is what the human wanted. These ask
+# whether the cart is telling the truth about what it costs, which is a separate
+# question with its own attacks and, usually, a different victim: here it is the
+# merchant rather than the payer.
+# ---------------------------------------------------------------------------
+
+@pattern("coupon-that-does-not-exist", BLOCK, "invent a code the merchant never issued")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("FREESTUFF", 50_000)
+
+
+@pattern("coupon-value-inflated", BLOCK, "a real 10% code claimed as a much larger sum")
+def _():
+    # SAVE10 on a Rs 4,200 cart is worth Rs 420. This claims Rs 3,000 of it.
+    return priced_eng(), *_signed(), discounted_cart("SAVE10", 300_000)
+
+
+@pattern("coupon-value-correct", ALLOW, "the same code claimed at its true value")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("SAVE10", 42_000)
+
+
+@pattern("coupon-cap-ignored", BLOCK, "a percentage code claimed past its own ceiling")
+def _():
+    # SAVE10 caps at Rs 500. On a Rs 42,000 cart that is Rs 500, not Rs 4,200.
+    lines = [CartLine("running shoes", "footwear", 420_000, quantity=10)]
+    m = a_mandate(max_amount_paise=5_000_000)
+    return priced_eng(), m, sign(m, KEY), discounted_cart("SAVE10", 420_000, lines)
+
+
+@pattern("coupon-below-minimum-spend", BLOCK, "a code used under the spend it requires")
+def _():
+    lines = [CartLine("running shoes", "footwear", 50_000)]
+    return priced_eng(), *_signed(), discounted_cart("FLAT500", 50_000, lines)
+
+
+@pattern("coupon-wrong-category", BLOCK, "a footwear code applied to electronics")
+def _():
+    lines = [CartLine("wireless earbuds", "electronics", 340_000)]
+    m = a_mandate(allowed_categories=("electronics",))
+    return priced_eng(), m, sign(m, KEY), discounted_cart("SHOES20", 68_000, lines)
+
+
+@pattern("coupon-expired", BLOCK, "last year's code, honoured by nobody")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("LASTYEAR", 100_000)
+
+
+@pattern("discount-with-no-code", BLOCK, "money taken off with nothing to justify it")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("", 100_000)
+
+
+@pattern("negative-discount", BLOCK, "a surcharge wearing a discount's clothes")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("SAVE10", -100_000)
+
+
+@pattern("discount-used-to-duck-the-cap", BLOCK,
+         "an inflated discount to slide an over-cap cart under the ceiling")
+def _():
+    # Rs 12,000 of shoes against a Rs 5,000 cap. Claim Rs 8,000 off and the net
+    # is Rs 4,000, which the cap would accept. The discount check runs first
+    # precisely so it never gets the chance.
+    lines = [CartLine("running shoes", "footwear", 1_200_000)]
+    return priced_eng(), *_signed(), discounted_cart("SAVE10", 800_000, lines)
+
+
+@pattern("loyalty-redemption-inflated", BLOCK, "a loyalty balance claimed larger than it is")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("LOYALTY", 400_000)
+
+
+@pattern("loyalty-redemption-honest", ALLOW, "the same redemption at its real value")
+def _():
+    return priced_eng(), *_signed(), discounted_cart("LOYALTY", 20_000)
+
+
+@pattern("unverifiable-discount-fails-closed", BLOCK,
+         "a code claimed at a merchant with no coupon book to check it against")
+def _():
+    return eng(prices=books()[1]), *_signed(), discounted_cart("SAVE10", 42_000)
+
+
+@pattern("line-price-understated", BLOCK,
+         "rewrite the price so an expensive cart fits under the cap")
+def _():
+    lines = [CartLine("running shoes", "footwear", 1_000)]   # listed at Rs 4,200
+    return priced_eng(), *_signed(), a_cart(lines=lines)
+
+
+@pattern("line-price-overstated", BLOCK, "charge the payer more than the shop asks")
+def _():
+    lines = [CartLine("running shoes", "footwear", 480_000)]
+    return priced_eng(), *_signed(), a_cart(lines=lines)
+
+
+@pattern("item-not-in-the-price-book", BLOCK, "a product this merchant does not sell")
+def _():
+    lines = [CartLine("gift card", "footwear", 100_000)]
+    return priced_eng(), *_signed(), a_cart(lines=lines)
+
+
+@pattern("honest-cart-with-a-price-book", ALLOW, "the control: correct price, no discount")
+def _():
+    return priced_eng(), *_signed(), a_cart()
 
 
 if __name__ == "__main__":

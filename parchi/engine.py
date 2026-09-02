@@ -16,6 +16,7 @@ from .checks import CheckResult, NonceStore, all_passed, run_all
 from .intent_match import IntentVerdict, intent_matches
 from .ledger import Ledger
 from .mandate import STEP_UP_PAISE, Cart, IntentMandate, rupees
+from .pricing import CouponBook, PriceBook
 
 ALLOW = "ALLOW"
 BLOCK = "BLOCK"
@@ -50,6 +51,8 @@ class Engine:
         ledger: Ledger | None = None,
         nonces: NonceStore | None = None,
         agents: AgentRegistry | None = None,
+        coupons: CouponBook | None = None,
+        prices: PriceBook | None = None,
         provider: str = "auto",
         timeout: float = 4.0,
         step_up_paise: int = STEP_UP_PAISE,
@@ -59,6 +62,8 @@ class Engine:
         self.ledger = ledger
         self.nonces = nonces or NonceStore()
         self.agents = agents
+        self.coupons = coupons
+        self.prices = prices
         self.provider = provider
         self.timeout = timeout
         self.step_up_paise = step_up_paise
@@ -74,7 +79,9 @@ class Engine:
         now: int | None = None,
         txn_id: str | None = None,
     ) -> Decision:
-        checks = run_all(mandate, signature, pub, cart, self.nonces, now=now, agents=self.agents)
+        checks = run_all(mandate, signature, pub, cart, self.nonces, now=now,
+                         agents=self.agents, coupons=self.coupons,
+                         prices=self.prices)
         intent: IntentVerdict | None = None
 
         if not all_passed(checks):

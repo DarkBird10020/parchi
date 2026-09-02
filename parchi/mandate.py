@@ -126,10 +126,23 @@ class Cart:
     merchant_note: str = ""           # product-page text; injection lives here
     agent_id: str = ""                # optional: which agent is presenting the cart
     agent_signature: str = ""         # optional: agent's signature over cart canonical bytes
+    discount_code: str = ""           # coupon or loyalty code the agent claims
+    discount_paise: int = 0           # what the agent claims that code is worth
+
+    @property
+    def gross_paise(self) -> int:
+        """What the items come to before any claimed reduction."""
+        return sum(line.amount_paise * line.quantity for line in self.lines)
 
     @property
     def total_paise(self) -> int:
-        return sum(line.amount_paise * line.quantity for line in self.lines)
+        """What the payer actually pays, which is what the cap is about.
+
+        The discount subtracts here, which is exactly why `check_discount` has to
+        run before `check_amount`: an unvalidated reduction is a way under any
+        ceiling.
+        """
+        return max(0, self.gross_paise - max(0, self.discount_paise))
 
     @property
     def categories(self) -> tuple:
@@ -148,6 +161,9 @@ class Cart:
             "merchant_note": self.merchant_note,
             "agent_id": self.agent_id,
             "agent_signature": self.agent_signature,
+            "discount_code": self.discount_code,
+            "discount_paise": self.discount_paise,
+            "gross_paise": self.gross_paise,
             "total_paise": self.total_paise,
         }
 
@@ -168,6 +184,8 @@ class Cart:
             merchant_note=d.get("merchant_note", ""),
             agent_id=d.get("agent_id", ""),
             agent_signature=d.get("agent_signature", ""),
+            discount_code=d.get("discount_code", ""),
+            discount_paise=int(d.get("discount_paise", 0) or 0),
         )
 
 

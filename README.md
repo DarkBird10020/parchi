@@ -8,8 +8,8 @@
 
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
-[![Attack patterns](https://img.shields.io/badge/attack%20cases-31%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-111%20passing-success)](tests/)
+[![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
+[![Tests](https://img.shields.io/badge/tests-130%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -51,7 +51,8 @@ can prove what was authorised when a customer says *"my agent did that, I didn't
 
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Results](#results) ·
 [The demo](#the-demo) · [Adversarial testing](#adversarial-testing) ·
-[The slip](#the-slip) · [Why this and not the alternative](#why-this-and-not-the-obvious-alternative) ·
+[The slip](#the-slip) · [Lying about the price](#lying-about-the-price) ·
+[Why this and not the alternative](#why-this-and-not-the-obvious-alternative) ·
 [Repo layout](#repo-layout) · [Known limitations](#known-limitations)
 
 ---
@@ -68,8 +69,8 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python -m pytest tests/ -q    # 111 tests
-python tests/test_attacks.py  # 31 adversarial patterns, printed as a report
+python -m pytest tests/ -q    # 130 tests
+python tests/test_attacks.py  # 48 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```
 
@@ -115,7 +116,7 @@ flowchart TD
 
     subgraph P["PARCHI: the checkpoint"]
         direction TB
-        R["<b>10 deterministic checks</b><br/>signature → expiry → payee → method → line items →<br/>quantity → category → cap → agent → replay<br/><i>short-circuits on first failure · no AI in that file</i>"]
+        R["<b>12 deterministic checks</b><br/>signature → expiry → payee → method → line items → quantity →<br/>prices → category → discount → cap → agent → replay<br/><i>short-circuits on first failure · no AI in that file</i>"]
         R -->|all pass| M["<b>1 model call</b><br/>does this cart match what the human asked for?<br/><i>strict typed JSON · provider timeout · untrusted text fenced as data</i>"]
     end
 
@@ -129,7 +130,7 @@ flowchart TD
     ALLOW --> L
 ```
 
-**Ten of the eleven checks are plain code**, because rules are faster, cheaper and
+**Twelve of the thirteen checks are plain code**, because rules are faster, cheaper and
 auditable. The model answers exactly one question rules cannot: *does this cart
 match what the human actually asked for?* The new quantity and agent-identity
 checks close two gaps that used to require the model.
@@ -436,6 +437,73 @@ its intelligence on.
 
 ---
 
+## Lying about the price
+
+Every check above asks whether the cart is what the human wanted. Two more ask a
+different question: **is the cart telling the truth about what it costs?**
+
+A cart is assembled by an agent out of numbers a merchant supplied, and both are
+untrusted. An agent that claims a Rs 3,000 discount on a Rs 420 coupon, or writes
+a line price the shop never charged, produces a cart where every other check
+passes and the arithmetic is still a lie. The victim here is usually the merchant
+rather than the payer, which is why nothing else in the checkpoint was looking.
+
+| Attempt | Refused because |
+|:--- |:--- |
+| A code the merchant never issued | not in the coupon book |
+| A real 10% code claimed as a much larger sum | the value is recomputed, never believed |
+| A percentage code claimed past its own ceiling | `max_discount_paise` is applied |
+| A code used below its minimum spend, after expiry, or on the wrong category | the coupon's own rules |
+| A loyalty balance claimed larger than it is | same mechanism, different `kind` |
+| Money taken off with no code at all | nothing to justify it |
+| A negative discount | a surcharge wearing a discount's clothes |
+| A line priced below what the shop charges | the price book |
+| A line priced above it | the payer is being overcharged |
+
+### The ordering is the security property
+
+`check_discount` runs **before** `check_amount`, and that is not a style choice.
+The cap applies to what the payer actually pays, which is the total after
+discounts, so an unvalidated reduction is a way under any ceiling: claim enough
+off and any cart fits. Rs 12,000 of shoes against a Rs 5,000 cap, with Rs 8,000
+claimed off, nets Rs 4,000 and the cap would have accepted it.
+
+Both orderings end in `BLOCK`, so the attack suite cannot tell them apart. The
+difference is which check reports it, and therefore what the merchant is told:
+*over the cap* is a budgeting problem, *this coupon is not worth that* is fraud.
+[`tests/test_pricing.py`](tests/test_pricing.py) asserts the ordering directly.
+
+A merchant with no coupon book **fails closed**. An unverifiable reduction in what
+the payer pays is exactly what this check exists for, so "I cannot check" has to
+mean no. A missing *price* book, by contrast, passes and says so in the evidence
+pack, because a claim nobody checked is not the same as a claim that checked out.
+
+### Where this sits against the published threat models
+
+The [OWASP Top 10 for Agentic Applications (2026)](https://owasp.org/) names tool
+misuse, identity and privilege abuse, and agent goal hijacking among its top
+risks. Akamai's 2026 commerce research reports agent hijacking against stored
+payment credentials, and loyalty point theft, as live attack traffic rather than
+theory. Parchi answers those at the transaction, which is the last place a claim
+can still be checked against something the human signed:
+
+| Threat named upstream | What refuses it here |
+|:--- |:--- |
+| Agent goal hijacking via poisoned content | the fenced intent check, plus `prompt_injection` alerting |
+| Tool misuse / unsafe chaining | the mandate is the tool's whole permitted scope |
+| Identity and privilege abuse | `agent_identity`, Ed25519 over the cart |
+| Stored credential abuse | `method`, scoped per mandate |
+| Loyalty point theft | `discount` with `kind="loyalty"` |
+| Memory poisoning that redirects payment | `payee`, scoped to one merchant |
+
+Two of those it does **not** answer, and saying so matters more than the table:
+supply chain compromise of the agent itself, and code execution inside the agent
+framework (as in CVE-2026-26030, an RCE in `semantic-kernel` reachable from a
+prompt). Parchi assumes the agent is already compromised. That is the premise, not
+a gap, but it means it is a containment layer and not a substitute for securing
+the runtime the agent lives in.
+
+---
 ## Why this and not the obvious alternative
 
 Every row is a decision that could have gone the other way. Several of them *did*,

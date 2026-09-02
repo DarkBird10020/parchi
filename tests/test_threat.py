@@ -187,8 +187,9 @@ def test_every_check_the_engine_can_fail_has_a_threat_name():
     from parchi.threat import BY_CHECK
 
     engine_checks = {
-        "signature", "expiry", "payee", "method", "line_items", "line_quantity",
-        "category", "amount_cap", "agent_identity", "nonce_replay",
+        "signature", "expiry", "payee", "method", "line_items",
+        "line_quantity", "prices", "category", "discount", "amount_cap",
+        "agent_identity", "nonce_replay",
     }
     missing = engine_checks - set(BY_CHECK)
     assert not missing, f"checks with no threat classification: {sorted(missing)}"

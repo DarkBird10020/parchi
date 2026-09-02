@@ -321,7 +321,8 @@ def test_evidence_pack_carries_everything_a_dispute_needs():
         assert pack["ledger_chain"]["intact"] is True
         assert {c["name"] for c in pack["checks"]} == {
             "signature", "expiry", "payee", "method", "line_items",
-            "line_quantity", "category", "amount_cap", "agent_identity", "nonce_replay"}
+            "line_quantity", "prices", "category", "discount", "amount_cap",
+            "agent_identity", "nonce_replay"}
         json.dumps(pack)  # the pack must be serialisable as-is
 
 

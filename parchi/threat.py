@@ -61,6 +61,15 @@ BY_CHECK: dict[str, tuple[str, str, str]] = {
     "method": (
         "instrument_abuse", HIGH,
         "The agent tried to pay with an instrument the payer did not authorise"),
+    "discount": (
+        # Critical rather than high: unlike a cap breach, this is a claim about
+        # money the merchant never agreed to give away, and the cart is otherwise
+        # entirely legitimate. Nothing else in the checkpoint would notice.
+        "discount_abuse", CRITICAL,
+        "A discount or loyalty redemption was claimed that the merchant did not issue"),
+    "prices": (
+        "price_manipulation", CRITICAL,
+        "A line was priced at something the merchant does not charge"),
     "amount_cap": (
         "cap_breach", HIGH,
         "The agent tried to spend more than the payer allowed"),

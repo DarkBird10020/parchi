@@ -29,6 +29,7 @@ from .mandate import (
     verify,
     verify_cart,
 )
+from .pricing import CouponBook, PriceBook
 
 
 @dataclass(frozen=True)
@@ -135,7 +136,18 @@ def check_agent(m: IntentMandate, cart: Cart, agents: AgentRegistry | None) -> C
     """
     if not m.allowed_agent_id:
         return CheckResult("agent_identity", True, "no agent identity required on this mandate")
-    if agents is None or cart.agent_id != m.allowed_agent_id:
+    if agents is None:
+        # Refuse, but say the true reason. Reporting this as "wrong agent" sends
+        # a fraud team hunting an impersonator when the actual fault is that
+        # nobody configured a registry, and the evidence pack would have carried
+        # that wrong story into a dispute.
+        return CheckResult(
+            "agent_identity",
+            False,
+            f"mandate requires agent '{m.allowed_agent_id}' but no agent registry "
+            f"is configured to verify one",
+        )
+    if cart.agent_id != m.allowed_agent_id:
         return CheckResult(
             "agent_identity",
             False,
@@ -220,6 +232,88 @@ def check_line_quantity(cart: Cart) -> CheckResult:
                        f"every line quantity is positive and within {MAX_LINE_QUANTITY}")
 
 
+
+def check_prices(cart: Cart, prices: PriceBook | None) -> CheckResult:
+    """Every line must cost what the shop says it costs.
+
+    Line prices arrive through the agent, and an agent that understates them
+    slides an expensive cart under the cap while the merchant settles the real
+    amount. No other check can see it: they all trust the number in the cart.
+
+    With no price book this passes, and says so rather than pretending. A claim
+    nobody can check is not the same as a claim that checked out, and the
+    difference belongs in the evidence pack.
+    """
+    if prices is None or not len(prices):
+        return CheckResult("prices", True, "no price book configured, line prices not verified")
+    for line in cart.lines:
+        listed = prices.get(line.description)
+        if listed is None:
+            return CheckResult("prices", False,
+                               f"'{line.description}' is not in this merchant's price book")
+        if int(line.amount_paise) != listed:
+            return CheckResult(
+                "prices", False,
+                f"'{line.description}' is listed at {rupees(listed)} but the cart "
+                f"says {rupees(line.amount_paise)}")
+    return CheckResult("prices", True,
+                       f"all {len(cart.lines)} line price(s) match the merchant's book")
+
+
+def check_discount(cart: Cart, coupons: CouponBook | None,
+                   now: int | None = None) -> CheckResult:
+    """A claimed reduction has to be one the merchant actually agreed to.
+
+    Runs before the amount check on purpose. The cap applies to what the payer
+    pays, so an unvalidated discount is a way under any ceiling: claim a large
+    enough reduction and any cart fits.
+    """
+    now = int(time.time() if now is None else now)
+    claimed = int(cart.discount_paise or 0)
+    code = (cart.discount_code or "").strip()
+
+    if not code and not claimed:
+        return CheckResult("discount", True, "no discount claimed")
+    if claimed < 0:
+        return CheckResult("discount", False,
+                           "negative discount, which is a surcharge in disguise")
+    if claimed and not code:
+        return CheckResult("discount", False,
+                           f"{rupees(claimed)} taken off with no code to justify it")
+    if coupons is None or not len(coupons):
+        # Fail closed. An unverifiable reduction in what the payer pays is
+        # exactly the thing this check exists for.
+        return CheckResult("discount", False,
+                           f"code '{code}' claimed but this merchant has no coupon book")
+
+    coupon = coupons.get(code)
+    if coupon is None:
+        return CheckResult("discount", False, f"code '{code}' is not a code this merchant issued")
+    if coupon.expires_at and now > coupon.expires_at:
+        return CheckResult("discount", False, f"code '{code}' expired")
+
+    gross = cart.gross_paise
+    if coupon.min_spend_paise and gross < coupon.min_spend_paise:
+        return CheckResult("discount", False,
+                           f"code '{code}' needs a spend of {rupees(coupon.min_spend_paise)}, "
+                           f"cart is {rupees(gross)}")
+    if coupon.categories:
+        allowed = {norm(c) for c in coupon.categories}
+        outside = [c for c in cart.categories if norm(c) not in allowed]
+        if outside:
+            return CheckResult("discount", False,
+                               f"code '{code}' does not apply to {outside}")
+
+    true_value = coupon.value_for(gross)
+    if claimed != true_value:
+        return CheckResult(
+            "discount", False,
+            f"code '{code}' is worth {rupees(true_value)} on this cart, "
+            f"but {rupees(claimed)} was taken off")
+    return CheckResult("discount", True,
+                       f"{coupon.kind} '{code}' verified at {rupees(true_value)}")
+
+
 def check_category(m: IntentMandate, cart: Cart) -> CheckResult:
     allowed = {norm(c) for c in m.allowed_categories}
     outside = [c for c in cart.categories if norm(c) not in allowed]
@@ -263,6 +357,8 @@ def run_all(
     store: NonceStore,
     now: int | None = None,
     agents: AgentRegistry | None = None,
+    coupons: CouponBook | None = None,
+    prices: PriceBook | None = None,
 ) -> list[CheckResult]:
     """Run every deterministic check in order, short-circuiting on first failure.
 
@@ -277,7 +373,11 @@ def run_all(
         lambda: check_method(m, cart),
         lambda: check_line_items(cart),
         lambda: check_line_quantity(cart),
+        lambda: check_prices(cart, prices),
         lambda: check_category(m, cart),
+        # Before the cap, always. The cap is enforced on the post-discount total,
+        # so an unvalidated reduction is a way under any ceiling.
+        lambda: check_discount(cart, coupons, now),
         lambda: check_amount(m, cart),
         lambda: check_agent(m, cart, agents),
         lambda: check_nonce(m, store),

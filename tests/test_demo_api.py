@@ -242,3 +242,74 @@ def test_the_refund_verdict_is_written_into_the_hash_chain():
     verdicts = [rec["verdict"] for rec in ledger["records"]]
     assert "REFUNDED" in verdicts
     assert ledger["chain"]["intact"] is True
+
+
+# --------------------------------------------------------------------------
+# alerts
+# --------------------------------------------------------------------------
+
+def test_a_refund_raises_an_alert_on_the_server_not_just_in_a_browser():
+    authorized = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    client.post("/api/settle", json={"txn_id": authorized["authorization_id"]})
+    body = client.get("/api/alerts").json()
+    refund = next(a for a in body["alerts"] if a["kind"] == "settlement_mismatch")
+    assert refund["severity"] == "high"
+    assert "support_console" in refund["delivered"]
+
+
+def test_a_log_edited_on_disk_is_caught_by_the_next_read_not_by_a_button():
+    """The Tamper button is a demo affordance. Detection cannot depend on it.
+
+    Verification runs on every ledger read, so whoever looks next finds the
+    break, including a support console polling in the background.
+    """
+    client.post("/api/authorize", json={"scenario": "allow"})
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+
+    with open(server.LEDGER_PATH, encoding="utf-8") as f:
+        before = f.read()
+    lines = [ln for ln in before.splitlines() if ln.strip()]
+    record = json.loads(lines[0])
+    # Guard the guard: writing back the value it already had would change nothing
+    # and this test would pass for the wrong reason.
+    record["verdict"] = "BLOCK" if record["verdict"] != "BLOCK" else "ALLOW"
+    lines[0] = json.dumps(record)
+    with open(server.LEDGER_PATH, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    with open(server.LEDGER_PATH, encoding="utf-8") as f:
+        assert f.read() != before
+
+    ledger = client.get("/api/ledger").json()
+    assert ledger["chain"]["intact"] is False
+
+    alerts = client.get("/api/alerts").json()
+    assert alerts["open_critical"] >= 1
+    assert any(a["kind"] == "ledger_tampered" for a in alerts["alerts"])
+
+
+def test_one_break_does_not_raise_an_alert_per_page_refresh():
+    client.post("/api/authorize", json={"scenario": "allow"})
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+    client.post("/api/tamper")
+    first = len(client.get("/api/alerts").json()["alerts"])
+    for _ in range(4):
+        client.get("/api/ledger")
+    assert len(client.get("/api/alerts").json()["alerts"]) == first
+
+
+def test_an_alert_webhook_failure_never_breaks_the_request(monkeypatch):
+    """Monitoring that can take down the thing it monitors is worse than none."""
+    monkeypatch.setattr(server, "ALERT_WEBHOOK", "http://127.0.0.1:9/does-not-exist")
+    authorized = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    r = client.post("/api/settle", json={"txn_id": authorized["authorization_id"]})
+    assert r.status_code == 200
+    assert r.json()["state"] == "REFUNDED"
+
+
+def test_reset_clears_alerts_so_a_demo_starts_clean():
+    client.post("/api/authorize", json={"scenario": "allow"})
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+    client.post("/api/tamper")
+    assert client.get("/api/alerts").json()["alerts"]
+    client.post("/api/reset")
+    assert client.get("/api/alerts").json()["alerts"] == []

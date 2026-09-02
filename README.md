@@ -255,6 +255,39 @@ reason    : cart contains ['electronics'], outside allowed categories ['footwear
 Nobody has to notice. The refund is a consequence of the rule, not a customer
 service decision, and it is written into the hash chain like any other verdict.
 
+### Who gets told
+
+A popup tells whoever happens to be looking, which on a payments system at 3am is
+nobody. Alerts are raised on the server, survive the tab closing, and are what a
+support console would poll:
+
+```bash
+curl localhost:8000/api/alerts
+```
+
+| Event | Severity |
+|:--- |:--- |
+| `ledger_tampered`, a past verdict no longer matches its hash | critical |
+| `settlement_mismatch`, a refund was issued automatically | high |
+
+Set `PARCHI_ALERT_WEBHOOK` and each one is posted outward as well. That delivery
+is fire-and-forget with a 3 second timeout, because monitoring that can take down
+the thing it monitors is worse than no monitoring, and there is a test asserting a
+dead webhook still returns a successful refund.
+
+**Detection does not depend on the Tamper button.** The chain is verified on every
+ledger read, so whoever looks next finds the break, including a console polling in
+the background. Editing `demo/ledger.jsonl` directly on disk, calling no endpoint
+at all, is caught the moment anyone opens the ledger:
+
+```
+edited record 1 on disk (ALLOW -> BLOCK), called no endpoint
+next read -> record 1 has been altered - hash does not match its body
+             [critical] alert raised
+```
+
+One break raises one alert, not one per refresh.
+
 `POST /api/authorizations` also accepts a caller-supplied signed mandate and cart,
 while resolving the payer key from server trust state. `STEP_UP` decisions can be
 approved once in the UI. With Razorpay test credentials, an allowed decision creates

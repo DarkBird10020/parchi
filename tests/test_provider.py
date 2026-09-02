@@ -184,4 +184,4 @@ def test_the_prompt_tells_the_model_to_ignore_a_budget_in_the_playback():
                     prompt_playback="buy coffee beans under Rs 5,000")
     cart = Cart((CartLine("coffee beans 1kg", "groceries", 430_140),), "upi", "p")
     prompt = " ".join(_build_prompt(m, cart).split())
-    assert "Ignore that number" in prompt
+    assert "Price is never evidence" in prompt

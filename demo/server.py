@@ -11,6 +11,7 @@ import secrets
 import sys
 import threading
 import time
+import urllib.request
 import uuid
 from typing import Any
 
@@ -84,6 +85,71 @@ for payer_id, key_hex in json.loads(os.environ.get("PARCHI_PAYER_KEYS_JSON", "{}
 # The last slip that cleared the checkpoint, so "replay this exact slip" is a
 # button and not a story.
 last_authorized: dict | None = None
+
+# --------------------------------------------------------------------------
+# alerts
+# --------------------------------------------------------------------------
+# A popup in a browser tab is not an alert. It tells whoever happens to be
+# looking, which on a payments system at 3am is nobody. These are raised on the
+# server, survive the page being closed, and are what a support console would
+# read.
+#
+# PARCHI_ALERT_WEBHOOK, when set, also posts each one outward. It is deliberately
+# fire-and-forget with a short timeout: an alert that can block or slow the
+# authorisation path has turned a monitoring feature into an outage.
+ALERT_WEBHOOK = os.environ.get("PARCHI_ALERT_WEBHOOK", "").strip()
+alerts: list[dict[str, Any]] = []
+
+
+def raise_alert(kind: str, severity: str, summary: str, detail: str,
+                txn_id: str | None = None) -> dict[str, Any]:
+    alert = {
+        "id": "alt_" + uuid.uuid4().hex[:10],
+        "ts": int(time.time() * 1000),
+        "kind": kind,
+        "severity": severity,          # critical | high | info
+        "summary": summary,
+        "detail": detail,
+        "txn_id": txn_id,
+        "delivered": [],
+    }
+    with state_lock:
+        alerts.append(alert)
+        # An unbounded list is a memory leak wearing a feature's clothes.
+        del alerts[:-200]
+    alert["delivered"].append("support_console")
+
+    if ALERT_WEBHOOK:
+        def deliver() -> None:
+            try:
+                req = urllib.request.Request(
+                    ALERT_WEBHOOK, data=json.dumps(alert).encode(),
+                    headers={"content-type": "application/json"}, method="POST")
+                urllib.request.urlopen(req, timeout=3).close()
+                alert["delivered"].append("webhook")
+            except Exception as exc:
+                alert["delivered"].append(f"webhook failed: {type(exc).__name__}")
+
+        threading.Thread(target=deliver, daemon=True).start()
+    return alert
+
+
+# Verification runs on every ledger read, so a broken chain is found by whoever
+# looks next rather than by whoever clicks Tamper. This remembers what has
+# already been reported so one break does not raise an alert per page refresh.
+_reported_breaks: set[str] = set()
+
+
+def check_chain_and_alert() -> dict[str, Any]:
+    ok, msg, n = verify_chain(LEDGER_PATH)
+    if not ok and msg not in _reported_breaks:
+        _reported_breaks.add(msg)
+        raise_alert(
+            "ledger_tampered", "critical",
+            "Audit log has been altered",
+            f"{msg}. Every verdict after this record is no longer provable.",
+        )
+    return {"intact": ok, "detail": msg, "records": n}
 
 
 # --------------------------------------------------------------------------
@@ -691,6 +757,15 @@ def settle(req: SettleRequest):
             record["state"] = "REFUNDED"
             record["refund"] = refund
 
+    if not matched:
+        raise_alert(
+            "settlement_mismatch", "high",
+            f"Refund issued: {refund['display']}",
+            f"Authorised {[ln.description for ln in authorised.lines]}, "
+            f"delivered {[ln.description for ln in delivered.lines]}. {failed.reason}",
+            txn_id=req.txn_id,
+        )
+
     engine.ledger.append(
         mandate_id=mandate.mandate_id,
         txn={"txn_id": req.txn_id, "payee_id": delivered.payee_id,
@@ -713,14 +788,31 @@ def settle(req: SettleRequest):
                       "display": rupees(delivered.total_paise)},
         "refund": refund,
         "checks": [c.to_dict() for c in checks],
-        "ledger": dict(zip(("intact", "detail", "records"), verify_chain(LEDGER_PATH), strict=True)),
+        "ledger": check_chain_and_alert(),
+    }
+
+
+@app.get("/api/alerts")
+def list_alerts(limit: int = 20):
+    """What a support console would poll.
+
+    Reading the ledger verifies it, so opening this page is itself a check: an
+    altered log raises an alert on the next read by anyone, not on a button.
+    """
+    check_chain_and_alert()
+    with state_lock:
+        recent = list(alerts[-limit:])
+    return {
+        "alerts": list(reversed(recent)),
+        "open_critical": sum(1 for a in alerts if a["severity"] == "critical"),
+        "webhook_configured": bool(ALERT_WEBHOOK),
     }
 
 
 @app.get("/api/ledger")
 def ledger(limit: int = 12):
     recs = list(Ledger(LEDGER_PATH).records())[-limit:]
-    ok, msg, n = verify_chain(LEDGER_PATH)
+    chain = check_chain_and_alert()
     return {
         "records": [
             {
@@ -731,7 +823,7 @@ def ledger(limit: int = 12):
             }
             for r in recs
         ],
-        "chain": {"intact": ok, "detail": msg, "records": n},
+        "chain": chain,
     }
 
 
@@ -751,8 +843,9 @@ def tamper():
     lines[idx] = json.dumps(rec)
     with open(LEDGER_PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
-    ok, msg, n = verify_chain(LEDGER_PATH)
-    return {"tampered_record": idx + 1, "chain": {"intact": ok, "detail": msg, "records": n}}
+    chain = check_chain_and_alert()
+    return {"tampered_record": idx + 1, "chain": chain,
+            "alerts": [a for a in alerts if a["kind"] == "ledger_tampered"][-1:]}
 
 
 @app.post("/api/reset")
@@ -765,6 +858,10 @@ def reset():
     last_authorized = None
     with state_lock:
         authorizations.clear()
+        alerts.clear()
+    # The ledger is gone, so a break that was already reported is no longer the
+    # same break. Forgetting lets the next tamper alert fire.
+    _reported_breaks.clear()
     return {"ok": True}
 
 

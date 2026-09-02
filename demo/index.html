@@ -466,6 +466,7 @@
           <div class="panelhead">The ledger <span class="r" id="chainShort"></span></div>
           <div id="chain"></div>
           <div class="chainstate ok" id="chainState">-</div>
+        <div class="chainstate ok" id="alertStrip" style="margin-top:6px">no alerts raised</div>
           <div class="toolbar">
             <button class="btn sm" id="btnTamper">Tamper</button>
             <button class="btn sm" id="btnVerify">Verify</button>
@@ -668,6 +669,25 @@ function notifyVerdict(scenarioId, d){
 
 // ---------------------------------------------------------------- settlement
 // The checkpoint runs before the money moves. This is the second look, after it.
+// The alert count is server state, so it is still there after a refresh and
+// after the tab is closed. That is the difference between a notification and a
+// popup nobody saw.
+async function loadAlerts(){
+  try {
+    const a = await api("/api/alerts");
+    const el = $("#alertStrip");
+    if(!el) return;
+    if(!a.alerts.length){
+      el.textContent = "no alerts raised";
+      el.className = "chainstate ok";
+      return;
+    }
+    const top = a.alerts[0];
+    el.className = "chainstate " + (top.severity === "critical" ? "bad" : "ok");
+    el.textContent = a.alerts.length + " alert(s) on the server, latest: "
+      + top.summary + " (" + top.severity + ", sent to " + top.delivered.join(", ") + ")";
+  } catch(e){ /* the strip is informational; never break the page for it */ }
+}
 async function settleAuthorization(){
   if(!currentAuthorization) return;
   const btn = $("#btnSettle");
@@ -692,6 +712,7 @@ async function settleAuthorization(){
         + r.refund.display + " refunded.";
     }
     loadLedger();
+    loadAlerts();
   } catch(error){
     notify("alarm", "Settlement check failed", error.message, null);
   } finally {
@@ -936,11 +957,16 @@ $("#btnTamper").addEventListener("click", async () => {
     return;
   }
   const t = await r.json();
+  const raised = (t.alerts && t.alerts[0]) || null;
   notify("alarm", "Audit log has been altered",
     "Someone edited a past verdict in the ledger. The hash chain no longer "
-    + "matches, so the record can be proven false rather than quietly trusted.",
-    (t.chain && t.chain.detail) ? t.chain.detail : "chain broken");
+    + "matches, so the record can be proven false rather than quietly trusted."
+    + (raised ? " Support has been alerted on the server, not just in this tab."
+              : ""),
+    ((t.chain && t.chain.detail) ? t.chain.detail : "chain broken")
+      + (raised ? "  |  alert " + raised.id + " -> " + raised.delivered.join(", ") : ""));
   loadLedger();
+  loadAlerts();
 });
 $("#btnReset").addEventListener("click", async () => {
   await fetch("/api/reset", {method:"POST"});
@@ -949,6 +975,7 @@ $("#btnReset").addEventListener("click", async () => {
 
 loadScenarios();
 loadLedger();
+loadAlerts();
 loadResults();
 </script>
 </body>

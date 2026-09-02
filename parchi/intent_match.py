@@ -54,11 +54,12 @@ false because of a price. If every item is something the human asked for, the
 answer is true no matter what the amounts are. Prices are shown only so you can
 recognise an add-on the human never mentioned.
 
-The authorised intent above is the human's own wording, so it often names a
-budget ("under Rs 5,000"). Ignore that number. It has already been enforced
-exactly, against the true total, by code that does not make arithmetic mistakes.
-Comparing it yourself is how this check goes wrong: treat a sentence like
-"buy coffee beans under Rs 5,000" as a request for coffee beans, nothing more.
+Price is never evidence. Not the budget the human happened to mention in their
+own wording, not whether an item looks expensive for what it is, not whether the
+amount seems like a normal price. Every one of those is already settled, exactly,
+by code that does not make arithmetic mistakes. Judge the item and the quantity
+against the request, and if a price is the only thing you can fault, the answer
+is true.
 
 If the human asked for "running shoes" without a quantity, a single pair is
 in scope. If the cart contains multiple identical pairs or a quantity greater

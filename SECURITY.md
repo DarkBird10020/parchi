@@ -1,8 +1,8 @@
 # Security
 
 Parchi decides whether money moves, so the security posture is part of the product
-rather than an afterthought. This file says what the threat model actually is, and —
-just as importantly — what it is not.
+rather than an afterthought. This file says what the threat model actually is and,
+just as importantly, what it is not.
 
 ## What this repository is
 
@@ -19,7 +19,7 @@ signature on the mandate is the only thing it trusts, and only for as long as th
 canonical bytes verify.
 
 | Attacker | Can do | Parchi's answer |
-| :--- | :--- | :--- |
+|:--- |:--- |:--- |
 | A compromised or manipulated agent | Present any cart, any mandate, repeatedly | 8 deterministic checks, short-circuiting; one-time nonce |
 | A merchant | Write arbitrary product text the agent reads, and present someone else's mandate | Untrusted text is fenced as data in the model prompt; `payee` check scopes a mandate to one merchant |
 | Anyone holding a mandate | Edit a field, extend the window, widen the categories | Ed25519 over canonical JSON; any edit fails verification |
@@ -39,7 +39,7 @@ python tests/test_attacks.py
 
 31 patterns covering forging, tampering, time manipulation, payee substitution,
 amount arithmetic, quantity inflation, agent impersonation, Unicode confusables, replay,
-and prompt injection aimed at the one model call — each with the verdict Parchi must
+and prompt injection aimed at the one model call, each with the verdict Parchi must
 return. **Six of them got through on the first run.** See [FAILURES.md](FAILURES.md)
 for what each one was.
 
@@ -60,7 +60,7 @@ The intent check can call a hosted model, so this repo handles a credential.
 - **Never in source.** Keys are read from the environment, or from `.env`, which is
   in `.gitignore`. `.env.example` carries placeholders only.
 - **Never in output.** `redact()` scrubs the key from every exception string before
-  it can reach a log, a ledger record or a pasted stack trace — the usual way a key
+  it can reach a log, a ledger record or a pasted stack trace: the usual way a key
   escapes. A test asserts this, including on the degraded path, where the error text
   is written into the ledger.
 - **A real env var always beats `.env`**, so CI secrets cannot be shadowed by a
@@ -71,14 +71,14 @@ The intent check can call a hosted model, so this repo handles a credential.
 - Exported conversation transcripts (`20??-??-??-*.txt`) are gitignored: they
   contain whatever was pasted into a session.
 
-If a key does reach a commit, rotating it at the provider is the fix — removing the
+If a key does reach a commit, rotating it at the provider is the fix, removing the
 commit is not, because it has already been fetched.
 
 ## Known blind spots
 
 Recorded rather than hidden:
 
-- **`quantity-inflation`** — five identical, allowed, under-cap items still read as
+- **`quantity-inflation`**, five identical, allowed, under-cap items still read as
   in-scope. No rule and no lexical check can distinguish one pair of shoes from five.
 - **The offline intent matcher** is a lexical stand-in, not a model. Numbers produced
   with it are labelled `heuristic` everywhere they appear.
@@ -86,5 +86,5 @@ Recorded rather than hidden:
 ## Reporting
 
 This is a hackathon submission, not a maintained service. If you find a bypass,
-please open an issue with the cart, mandate and expected verdict — ideally as a
+please open an issue with the cart, mandate and expected verdict, ideally as a
 patch to `tests/test_attacks.py`.

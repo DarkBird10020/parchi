@@ -155,8 +155,10 @@ def test_the_prompt_does_not_ask_the_model_to_enforce_the_cap():
     """
     from parchi.intent_match import _build_prompt
 
+    # A cap value that appears nowhere else in the prompt's fixed text, so the
+    # assertion below can only fail if the mandate's own cap is being injected.
     m = new_mandate(payer_id="u", payee_id="p", allowed_methods=("upi",),
-                    max_amount_paise=500_000, allowed_categories=("footwear",),
+                    max_amount_paise=771_100, allowed_categories=("footwear",),
                     prompt_playback="buy running shoes")
     cart = Cart((CartLine("running shoes", "footwear", 407_726),), "upi", "p")
     # The prompt is hard-wrapped, so match on collapsed whitespace rather than
@@ -164,5 +166,22 @@ def test_the_prompt_does_not_ask_the_model_to_enforce_the_cap():
     prompt = " ".join(_build_prompt(m, cart).split())
     assert "Maximum: Rs" not in prompt
     assert "never answer false because of a price" in prompt
-    assert "5,000" not in prompt          # the cap must not reach the model
+    assert "7,711" not in prompt          # the cap must not reach the model
     assert "4,077.26" in prompt           # the line price still does
+
+
+def test_the_prompt_tells_the_model_to_ignore_a_budget_in_the_playback():
+    """The cap was removed from the prompt, and the model kept enforcing it anyway.
+
+    It reaches the model a second way: the playback is the human's own sentence,
+    and humans write "buy coffee beans under Rs 5,000". On the 1,000-row run that
+    accounted for all 8 false blocks, Rs 49,279 of refused legitimate carts.
+    """
+    from parchi.intent_match import _build_prompt
+
+    m = new_mandate(payer_id="u", payee_id="p", allowed_methods=("upi",),
+                    max_amount_paise=500_000, allowed_categories=("groceries",),
+                    prompt_playback="buy coffee beans under Rs 5,000")
+    cart = Cart((CartLine("coffee beans 1kg", "groceries", 430_140),), "upi", "p")
+    prompt = " ".join(_build_prompt(m, cart).split())
+    assert "Ignore that number" in prompt

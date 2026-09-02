@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Parchi — a permission layer for AI-initiated payments</title>
+<title>Parchi: a permission layer for AI-initiated payments</title>
 <style>
   /* "The paper slip": the mandate is a physical object. Cream ground, dashed
-     rules, a vermillion stamp for the verdict. No external fonts, no CDN — the
+     rules, a vermillion stamp for the verdict. No external fonts, no CDN: the
      demo has to work on a hotel wifi. */
-  :root{
+:root{
     --paper:#F5F1E8; --card:#FFFDF7; --card-2:#F9F2E9;
     --rule:#DCD4C2; --rule-2:#C9BFA8; --rule-3:#EDE7D9;
     --ink:#16130E; --ink-2:#3E382D; --ink-3:#6B6151; --ink-4:#9E947F;
@@ -22,7 +22,7 @@
   html{scroll-behavior:smooth}
   @media (prefers-reduced-motion: reduce){
     html{scroll-behavior:auto}
-    *,*::before,*::after{animation-duration:.001ms!important; animation-iteration-count:1!important; transition-duration:.001ms!important}
+    *,*:before,*:after{animation-duration:.001ms!important; animation-iteration-count:1!important; transition-duration:.001ms!important}
   }
   body{
     margin:0; background:var(--paper); color:var(--ink); font-family:var(--serif);
@@ -30,7 +30,7 @@
   }
   a{color:var(--stamp); text-decoration:none}
   a:hover{color:#8E3520}
-  :focus-visible{outline:2px solid var(--stamp); outline-offset:3px}
+:focus-visible{outline:2px solid var(--stamp); outline-offset:3px}
   .wrap{max-width:1180px; margin:0 auto; padding:0 40px}
   @media(max-width:700px){ .wrap{padding:0 20px} }
   .eyebrow{
@@ -386,8 +386,7 @@
           <span class="vchip BLOCK">BLOCK</span>
           <span class="vchip STEP_UP">STEP-UP</span>
         </div>
-        <p>Three answers, not two. A system with only the first two is a filter. The third —
-           <span class="it" style="color:var(--ink)">ask the human</span> — is what makes it a
+        <p>Three answers, not two. A system with only the first two is a filter. The third, <span class="it" style="color:var(--ink)">ask the human</span>, is what makes it a
            risk product.</p>
       </div>
     </div>
@@ -408,7 +407,7 @@
         <div class="scenarios" id="scenarios" role="group" aria-label="Scenarios"></div>
         <label class="killrow">
           <input type="checkbox" id="killModel" />
-          <span>Kill the model mid-demo — take the degraded path</span>
+          <span>Kill the model mid-demo, take the degraded path</span>
         </label>
       </div>
 
@@ -435,13 +434,13 @@
       <div class="rail-right">
         <div class="sheet">
           <div class="panelhead">Evidence pack <span class="r">JSON</span></div>
-          <pre id="evidence">Runs appear here — prototype evidence JSON for a dispute workflow.</pre>
+          <pre id="evidence">Runs appear here, prototype evidence JSON for a dispute workflow.</pre>
         </div>
 
         <div class="sheet">
           <div class="panelhead">The ledger <span class="r" id="chainShort"></span></div>
           <div id="chain"></div>
-          <div class="chainstate ok" id="chainState">—</div>
+          <div class="chainstate ok" id="chainState">-</div>
           <div class="toolbar">
             <button class="btn sm" id="btnTamper">Tamper</button>
             <button class="btn sm" id="btnVerify">Verify</button>
@@ -493,26 +492,26 @@
     </div>
     <div class="cards4">
       <div class="sheet">
-        <div class="num">01 — THE SLIP</div>
+        <div class="num">01: THE SLIP</div>
         <h3>A signed intent mandate</h3>
         <p>Cap, categories, instruments, TTL, a one-time nonce, and the agent's own playback of
            what the human asked. Ed25519 over canonical JSON bytes.</p>
       </div>
       <div class="sheet">
-        <div class="num">02 — THE RULES</div>
+        <div class="num">02: THE RULES</div>
         <h3>Ten deterministic checks</h3>
         <p>Signature, expiry, payee, method, line items, quantity, category, cap, agent
-           identity, replay — in order, short-circuiting on the first failure. No AI in
+           identity, replay, in order, short-circuiting on the first failure. No AI in
            that file.</p>
       </div>
       <div class="sheet">
-        <div class="num">03 — THE ONE CALL</div>
+        <div class="num">03: THE ONE CALL</div>
         <h3>Does the cart match the intent?</h3>
         <p>Strict typed JSON, provider timeout, untrusted merchant text fenced as data. If it
            cannot answer, every purchase requires human confirmation.</p>
       </div>
       <div class="sheet">
-        <div class="num">04 — THE RECEIPT</div>
+        <div class="num">04: THE RECEIPT</div>
         <h3>Hash-chained evidence</h3>
         <p>Checks, transaction summary, intent result and verdict enter a hash-linked log that
            the server verifies. Separate evidence JSON carries the signed slip.</p>
@@ -588,7 +587,7 @@ async function loadScenarios(){
 
 function checkRow(c){
   return `<div class="check ${c.passed ? "pass" : "fail"}">
-    <span class="ic" aria-hidden="true">${c.passed ? "✓" : "✕"}</span>
+    <span class="ic" aria-hidden="true">${c.passed ? "✓": "✕"}</span>
     <span class="n">${esc(c.name)}</span>
     <span class="r">${esc(c.reason)}</span>
   </div>`;
@@ -596,13 +595,13 @@ function checkRow(c){
 
 function intentRow(i){
   if(!i) return `<div class="check skip">
-      <span class="ic" aria-hidden="true">–</span><span class="n">intent_match</span>
-      <span class="r">not reached — a rule already settled this one</span></div>`;
+      <span class="ic" aria-hidden="true">-</span><span class="n">intent_match</span>
+      <span class="r">not reached: a rule already settled this one</span></div>`;
   const tag = i.degraded
     ? `<span class="tag" style="border-color:var(--stepup);color:var(--stepup)">DEGRADED</span>`
-    : `<span class="tag">${esc(i.provider)}</span>`;
+: `<span class="tag">${esc(i.provider)}</span>`;
   return `<div class="check ai ${i.match ? "pass" : "fail"}">
-    <span class="ic" aria-hidden="true">${i.match ? "✓" : "✕"}</span>
+    <span class="ic" aria-hidden="true">${i.match ? "✓": "✕"}</span>
     <span class="n">intent_match${tag}</span>
     <span class="r">${esc(i.reason)}</span>
   </div>`;
@@ -757,13 +756,13 @@ async function loadLedger(){
     <div class="lrec">
       <span class="link">${esc(r.prev.slice(0,8))}…→</span>
       <span class="v ${esc(r.verdict)}">${esc(r.verdict).replace("_","-")}</span>
-      <span class="h">${esc(r.hash.slice(0,10))}…${r.degraded ? " · degraded" : ""}</span>
+      <span class="h">${esc(r.hash.slice(0,10))}…${r.degraded ? " · degraded": ""}</span>
     </div>`).join("")
-    : `<div class="lrec"><span class="link">no records yet</span></div>`;
+: `<div class="lrec"><span class="link">no records yet</span></div>`;
   const s = $("#chainState");
-  s.className = "chainstate " + (d.chain.intact ? "ok" : "bad");
-  s.textContent = (d.chain.intact ? "✓ " : "✕ ") + d.chain.detail;
-  $("#chainShort").textContent = d.chain.intact ? "✓ verified" : "✕ broken";
+  s.className = "chainstate " + (d.chain.intact ? "ok": "bad");
+  s.textContent = (d.chain.intact ? "✓ ": "✕ ") + d.chain.detail;
+  $("#chainShort").textContent = d.chain.intact ? "✓ verified": "✕ broken";
 }
 
 async function loadResults(){
@@ -807,9 +806,9 @@ async function loadResults(){
       <div><div class="lbl${key === "parchi" ? " it" : ""}">${labels[key][0]}</div>
         <div class="sub">${labels[key][1](s)}</div></div>
       <div class="track">
-        <div class="costbar${total ? "" : " zero"}" ${total ? `style="width:${pct}%"` : ""}></div>
+        <div class="costbar${total ? "" : " zero"}" ${total ?  MASK14  : ""}></div>
         <div class="barval">${inr}</div>
-        ${total ? "" : '<div class="sub">— nothing wrongly blocked, nothing wrongly paid</div>'}
+        ${total ? "": '<div class="sub">: nothing wrongly blocked, nothing wrongly paid</div>'}
       </div>
     </div>`;
   }).join("");
@@ -820,7 +819,7 @@ async function loadResults(){
     `${d.dataset.rows} rows · seed ${d.dataset.seed} · intent provider "${d.intent_provider}". ` +
     (["api", "openai"].includes(d.intent_provider)
       ? "This run used the model."
-      : "The Parchi row was produced by the offline stand-in matcher, not by a model — " +
+: "The Parchi row was produced by the offline stand-in matcher, not by a model, " +
         "the repo runs end to end with no API key, and that number is not an LLM number.") +
     ` Ledger: ${d.ledger.detail}.`;
 }
@@ -833,7 +832,7 @@ $("#btnTamper").addEventListener("click", async () => {
   if(!r.ok){
     const s = $("#chainState");
     s.className = "chainstate bad";
-    s.textContent = "run a couple of scenarios first — nothing to tamper with yet";
+    s.textContent = "run a couple of scenarios first: nothing to tamper with yet";
     return;
   }
   loadLedger();

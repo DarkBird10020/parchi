@@ -11,7 +11,7 @@ Shape: what broke → what I first assumed → what it actually was → what I c
 ### 1. The intent check silently agreed with the rules, and I almost shipped that as a result
 
 **Broke.** The first full scoreboard run had `rules_only` and `parchi` producing
-identical numbers — 90.0% recall, same rupee costs, to the decimal. The one model
+identical numbers, 90.0% recall, same rupee costs, to the decimal. The one model
 call was adding literally nothing.
 
 **Assumed.** The engine was never reaching the intent check: the deterministic
@@ -21,7 +21,7 @@ blocked earlier by the category check and the model was simply never asked.
 **Actually.** The engine was calling it. The matcher was wrong. It built the set of
 things the human "wanted" as *playback words ∪ allowed categories*, and the set of
 things a cart line "is" as *description words ∪ its own category*. Every in-category
-line therefore matched on the category token alone — which is exactly the case the
+line therefore matched on the category token alone, and that is the one case the
 check exists to catch, and the one case `check_category` already covers
 deterministically.
 
@@ -41,7 +41,7 @@ claimed to test.
 **Broke.** `blocked_by` reported 84 blocks from the category check where the
 generator had produced 85 category violations. One row was getting through.
 
-**Assumed.** An ordering bug in `run_all` — some other check consuming the row
+**Assumed.** An ordering bug in `run_all`, some other check consuming the row
 first.
 
 **Actually.** The generator picked out-of-scope items from a fixed list without
@@ -69,7 +69,7 @@ rows labelled `ALLOW`, none of them blocked.
 **Actually.** The threshold was fine; the dataset overlapped it. Ordinary
 `in_scope` rows drew caps up to Rs 15,000 and carts up to 85% of the cap, so 65 of
 them landed above the Rs 10,000 step-up line. The engine answered `STEP_UP`; the
-label said `ALLOW`. Both were defensible, which is the actual problem — the case
+label said `ALLOW`. Both were defensible, which is the actual problem: the case
 types were not disjoint.
 
 **Changed.** Everyday caps are now capped below the step-up threshold, so a row is
@@ -85,19 +85,19 @@ scoring the disagreement between two of your own opinions.
 ### 4. "Fail closed" was implemented as "burn the customer"
 
 **Broke.** With the model killed (`--provider off`), Parchi's precision fell to
-85.5% and it destroyed **Rs 6,22,472** of legitimate revenue across 40 carts —
-worse, on that metric, than the rules-only baseline it was supposed to improve on.
+85.5% and it destroyed **Rs 6,22,472** of legitimate revenue across 40 carts. On
+that metric it was worse than the rules-only baseline it was meant to improve on.
 
 **Assumed.** That this was the honest cost of failing closed and belonged in the
 video as-is.
 
 **Actually.** I had implemented "fail closed" as `BLOCK`. But the degraded path has
-no finding — the intent check did not conclude the cart was wrong, it concluded
+no finding: the intent check did not conclude the cart was wrong, it concluded
 nothing at all. Refusing a purchase on the strength of "I could not check" throws
 away a customer to avoid a risk that was never established. "Never auto-approve" is
 the property that matters; "refuse" is a different and more expensive property.
 
-**Changed.** A degraded intent check now returns `STEP_UP` at every amount — the
+**Changed.** A degraded intent check now returns `STEP_UP` at every amount: the
 human decides. Semantic uncertainty can no longer reopen a low-value injection.
 (`parchi/engine.py`, with tests pinning the fail-safe path.)
 
@@ -111,7 +111,7 @@ silently auto-approved.
 
 **Broke.** Found while filming-testing the demo page: I wiped `demo/ledger.jsonl`
 from a shell while the server was running, ran one scenario, and the new first
-record linked to `prev = f0defdb1…` — the hash of a record that no longer existed
+record linked to `prev = f0defdb1…`: the hash of a record that no longer existed
 anywhere. `verify_chain` would call that a broken chain forever after.
 
 **Assumed.** Nothing; I noticed the hash in the UI did not start at zeros and went
@@ -119,7 +119,7 @@ looking.
 
 **Actually.** `Ledger` reads the last hash once, at construction, and then keeps it
 in memory. That is correct for an append-only file and wrong for a file that can
-disappear underneath it — rotation, a wipe, a demo reset that recreates the object
+disappear underneath it, rotation, a wipe, a demo reset that recreates the object
 in one place but not another.
 
 **Changed.** `append()` re-anchors to `GENESIS` when the file is missing, plus a
@@ -179,8 +179,8 @@ passing test I fudged.
 
 **Broke.** Testing the repo end to end, I generated the batch twice with the same
 seed and diffed the bytes. All 1,000 rows differed. The README promises "same seed,
-same 1,000 rows", and the CI job runs `git diff --exit-code -- data/` to enforce it —
-that job would have gone red on its very first run, on a fresh clone, with no code
+same 1,000 rows", and the CI job runs `git diff --exit-code -- data/` to enforce
+it. That job would have gone red on its very first run, on a fresh clone, with no code
 change at all.
 
 **Assumed.** Briefly, that I had changed the generator. I had not: three consecutive
@@ -188,8 +188,8 @@ runs of untouched code produced three different files.
 
 **Actually.** `new_mandate()` mints `mandate_id` and `nonce` from `uuid.uuid4()`,
 which knows nothing about the generator's seed. Every other field came from the
-seeded `random.Random`, so the *distribution* was identical run to run — same case
-mix, same recall, same precision — while every row's identity, and therefore every
+seeded `random.Random`, so the *distribution* was identical run to run, same case
+mix, same recall, same precision, while every row's identity, and therefore every
 signature, was different. That is the nastiest shape a reproducibility bug can take:
 all the summary numbers agree, and only a byte comparison disagrees.
 
@@ -198,7 +198,7 @@ generator passes seeded values. The uuid4 default stays, with a comment saying w
 a predictable nonce is a replay vulnerability, so injectability exists for the
 fixed-seed generator and nothing else. Added
 `test_the_same_seed_produces_byte_identical_rows`, which also asserts a *different*
-seed still differs — otherwise the "fix" could be no randomness at all.
+seed still differs, otherwise the "fix" could be no randomness at all.
 (`parchi/mandate.py`, `data/generate.py`)
 
 **Cost.** ~25 minutes, plus a knock-on: seeding those two fields consumes from the
@@ -234,7 +234,7 @@ would have hit during filming, on stage, as "I fixed that, why isn't it showing"
 
 Canonical bytes. `asdict()` on the frozen dataclass turns `allowed_methods` into a
 tuple, `json.dumps` writes it as an array, and anything rebuilt from JSON comes
-back as a **list** — different Python object, identical canonical bytes only if you
+back as a **list**, different Python object, identical canonical bytes only if you
 normalise on the way in. `IntentMandate.from_dict` does that normalisation, and
 `test_canonical_bytes_are_stable_across_a_json_round_trip` is the test that would
 have caught it. Written before it could bite, because it is the single most
@@ -258,19 +258,19 @@ them: this system's failure mode is not a crash, it is a confident answer.
    returned early for anything but `auto`, so the key was missing, every call
    raised, and every row took the degraded path. The batch finished, the table
    printed, and the numbers were the fallback's. Fixed by loading before the
-   branch — and by `_guard_degraded_run`, which now makes one real call before
+   branch, and by `_guard_degraded_run`, which now makes one real call before
    scoring and refuses to continue if it degrades.
 
 2. **The 4-second timeout was shorter than the endpoint.** Raising it to 30s cut
-   degradation from 21 rows to 7 — but the remaining 7 were not timeouts at all.
+   degradation from 21 rows to 7, but the remaining 7 were not timeouts at all.
    Six were `getaddrinfo failed`. urllib opens a fresh socket, and therefore a
    fresh DNS lookup, per request; a few hundred lookups in a couple of minutes
    and the resolver simply stops answering. Fixed with one keep-alive connection
    and a reconnect-once-on-transport-error rule. HTTP statuses are still never
-   retried — a 429 is the endpoint's answer, not a glitch. Degraded rows: 7 → 0.
+   retried: a 429 is the endpoint's answer, not a glitch. Degraded rows: 7 → 0.
 
 3. **The model was enforcing the price cap, and getting it wrong.** With the
-   transport fixed, precision fell to **57.1%** — three legitimate carts blocked,
+   transport fixed, precision fell to **57.1%**, three legitimate carts blocked,
    Rs 11,667 of false-positive cost. The reasons were fluent and wrong:
 
    > *"The cart contains a USB-C hub, which matches the authorised intent, but the
@@ -278,7 +278,7 @@ them: this system's failure mode is not a crash, it is a confident answer.
 
    Rs 4,077 does not exceed Rs 5,000. The prompt had been handing the model
    `Maximum: Rs {cap}`, so it dutifully re-decided a question `check_amount` had
-   already answered exactly — and did it badly, because comparing two numbers is
+   already answered exactly, and did it badly, because comparing two numbers is
    the one thing a model should never be asked for here.
 
 **Changed.** The cap no longer appears in the prompt at all. The model is told, in
@@ -291,7 +291,7 @@ degraded.**
 **Cost.** ~90 minutes. It is the same lesson as entry 1, arriving from the
 opposite direction: there, the model was a worse copy of a rule and added nothing;
 here, the model was a worse copy of a rule and actively destroyed revenue. The
-boundary is the whole design — rules decide anything arithmetic and exact, the
+boundary is the whole design, rules decide anything arithmetic and exact, the
 model decides only the one thing arithmetic cannot: is this the thing the human
 asked for.
 
@@ -299,8 +299,8 @@ asked for.
 
 ### 11. The full 1,000-row model run: what a 40-row sample could not show
 
-**Broke.** Nothing crashed, which is the point. The sample runs (25–40 rows)
-came back 100% recall, 100% precision, 0 degraded — and the full run does not.
+**Broke.** Nothing crashed, which is the point. The sample runs (25-40 rows)
+came back 100% recall, 100% precision, 0 degraded, and the full run does not.
 
 **Assumed.** Implicitly, that a clean sample scales to a clean batch. It does
 not, in two separate ways.
@@ -308,26 +308,26 @@ not, in two separate ways.
 **Actually.**
 
 1. **The endpoint throttled under sustained load.** 114 of 1,000 calls took
-   the degraded path — a trickle through the first half, a wall towards the
+   the degraded path: a trickle through the first half, a wall towards the
    end. The stratified-40 sample never ran long enough to hit it. Every
    degraded cart became `STEP_UP` by design (entry 4), so nothing was silently
-   auto-approved — but roughly a hundred legitimate customers would have been
+   auto-approved, but roughly a hundred legitimate customers would have been
    asked "are you sure?" for no reason. Fail-safe is not fail-free: degradation
    converts risk into friction, and at 11% of traffic that friction is a
    product decision, not a rounding error.
 2. **The model made three real mistakes.** Two false blocks (Rs 34,404,
    including one Rs 30,102 legitimate high-value cart) and one in-category
-   injection it called in-scope (Rs 5,000 — `second pair, same shoe`, a
+   injection it called in-scope (Rs 5,000, `second pair, same shoe`, a
    quantity-inflation variant, the recorded blind spot arriving through the
    intent check's front door). Four more violations landed on `STEP_UP` via
-   degradation instead of `BLOCK` — the safe direction, but misses on the
+   degradation instead of `BLOCK`: the safe direction, but misses on the
    scoreboard.
 
 Final: **recall 98.1%** (255/260), **precision 99.2%**, false-positive cost
 **Rs 34,404** vs the heuristic's Rs 0, ledger chain intact across all 1,000
 records, 39/40 high-value legit carts still reached a human.
 
-**Changed.** Nothing in the code — the failure-safe held, which is the
+**Changed.** Nothing in the code: the failure-safe held, which is the
 validation. Changed the claims instead: the README now publishes the model
 table next to the heuristic one, degraded rows and all, because a risk product
 that only quotes its best run is doing the thing it exists to prevent.
@@ -340,7 +340,7 @@ pretend is rare.
 
 ---
 
-### 12. Quantity inflation — five identical allowed pairs, under the cap
+### 12. Quantity inflation, five identical allowed pairs, under the cap
 
 **Broke.** `quantity-inflation` was a known blind spot: the cart contained five
 lines of "running shoes", each within an allowed category and the total under the
@@ -352,7 +352,7 @@ blind spot belonged in the README and the attack suite as a recorded limitation.
 
 **Actually.** The playback itself carries a quantity: "buy running shoes" implies
 one pair, and explicit numbers like "two" or "five" are words the offline matcher
-can read. The real gap was in the data model — `CartLine` had no `quantity` field,
+can read. The real gap was in the data model, `CartLine` had no `quantity` field,
 so five pairs showed up as five separate lines or one line with quantity hidden
 from the prompt.
 
@@ -368,7 +368,7 @@ cart should have carried in the first place.
 
 ---
 
-### 13. "My agent did that, I didn't" — there was no agent to point at
+### 13. "My agent did that, I didn't": there was no agent to point at
 
 **Broke.** Parchi verified that a cart matched a signed payer intent, but it had
 no answer to *which* agent presented the cart. A stolen agent credential or a
@@ -396,14 +396,14 @@ product is who you can hold accountable when something goes wrong.
 ### 14. The demo stopped demonstrating anything, and every failure was safe
 
 **Broke.** Clicking through the demo against a live endpoint, the `injection`
-scenario — the one beat where the model earns its place — came back **STEP_UP,
+scenario: the one beat where the model earns its place, came back **STEP_UP,
 not BLOCK**. So did `step_up`, for the wrong reason. CI was green throughout.
 
 **Assumed.** A timeout. The engine's budget is 4s and the endpoint answers in
-2–10s, so the wall looked obvious.
+2-10s, so the wall looked obvious.
 
 **Actually.** Three bugs stacked behind one symptom, and *every one of them failed
-safe* — which is precisely why none of them surfaced as a failure.
+safe*, which is precisely why none of them surfaced as a failure.
 
 1. **The 4s budget is a production posture, not a demo one.** Raising it fixed
    `quantity_inflation` and nothing else. CI never saw this: with no key the
@@ -414,25 +414,25 @@ safe* — which is precisely why none of them surfaced as a failure.
    to stop `getaddrinfo failed` on long batches, with the connection in a module
    global. `http.client` is not thread-safe and uvicorn runs sync handlers in a
    threadpool, so concurrent authorizations interleaved on one socket and came
-   back as `ResponseNotReady: Idle` — or as one thread reading *another thread's
+   back as `ResponseNotReady: Idle`, or as one thread reading *another thread's
    response body*. Measured: 6 concurrent requests, 4 wrong. Fixed with
    `threading.local`, keeping the DNS win without sharing a socket.
 
 3. **The model answers correctly in the wrong envelope.** With the transport
-   fixed, ~9% of replies were still `{"answer": false}` — the right judgement,
-   no reason attached — or a double-encoded
+   fixed, ~9% of replies were still `{"answer": false}`: the right judgement,
+   no reason attached, or a double-encoded
    `{"answer": "{\"match\": false, ...}"}`. A bare boolean must be refused: an
    unexplained `true` would move money with nothing in the ledger to justify it.
    So every one degraded.
 
-**Changed.** `_unwrap` recovers the double-encoded case, narrowly — single-key
+**Changed.** `_unwrap` recovers the double-encoded case, narrowly, single-key
 envelopes, two levels deep, and the caller still enforces the exact shape and
 types, so an unrecognised envelope still degrades. The bare-boolean case was
 fixed at the source instead, by requesting a strict `json_schema` rather than a
 bare `json_object`. Measured on the same cart, 32 calls each:
 
 | `response_format` | usable |
-| :--- | :--- |
+|:--- |:--- |
 | `json_object` | 29/32 |
 | `json_schema` strict | **32/32** |
 
@@ -444,7 +444,7 @@ zero degraded**, and all 10 scenarios match the verdicts CI asserts.
 
 **Cost.** ~70 minutes, and the uncomfortable lesson: *a system designed to fail
 safe will hide its own bugs.* Every failure here produced a defensible verdict and
-a complete audit record, so nothing alerted — the checkpoint was fine and the
+a complete audit record, so nothing alerted: the checkpoint was fine and the
 product was broken. Watching only for unsafe outcomes would never have found it.
 The rate of `degraded` is the number to watch, not just the verdict.
 
@@ -455,7 +455,7 @@ The rate of `degraded` is the number to watch, not just the verdict.
 The headline number is now a model number. The full 1,000-row run against
 `z-ai/glm-4.7-flash` is published in the README's results table and in
 [`eval/results_model_full.json`](eval/results_model_full.json), next to the
-heuristic table it replaced as the claim of record. The heuristic row stays —
+heuristic table it replaced as the claim of record. The heuristic row stays because
 it is the number a no-key reproduction gets, and the gap between the two rows
 is now itself a documented finding rather than a caveat.
 

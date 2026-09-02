@@ -9,8 +9,8 @@ US-card thinking transplanted into an Indian pitch.
 
 UPI Reserve Pay (block-and-debit) already separates two moments that card rails
 blur together: the customer **blocks** an amount in their own account ahead of
-time, and the merchant **debits** against that block later. That is exactly the
-shape of agent spending — the human authorises before the purchase exists, and the
+time, and the merchant **debits** against that block later. That is the
+shape of agent spending: the human authorises before the purchase exists, and the
 agent transacts afterwards without the human present.
 
 What Reserve Pay gives you is a *ceiling and a window*. What it does not give you
@@ -29,7 +29,7 @@ where the two meet.
 | `allowed_methods` | Rail selection (UPI vs card) | Reserve Pay narrows this to UPI; the field stays because the same mandate can also be presented on a card rail. |
 | `expires_at` | Block validity / mandate end date | AP2 guidance is ~24h. Reserve Pay blocks routinely run longer, so the mandate TTL is the tighter of the two and Parchi enforces the tighter one. |
 | `nonce` | UMN + debit sequence number | UPI's Unique Mandate Number identifies the mandate; the nonce makes a single *authorisation* one-time. A recurring UMN would carry a fresh nonce per debit. |
-| `signature` | Payer's UPI PIN authorisation of the block | Not equivalent, and this is the interesting gap — see below. |
+| `signature` | Payer's UPI PIN authorisation of the block | Not equivalent, and this is the interesting gap, see below. |
 | `allowed_categories` | **no equivalent** | The rail has no notion of what the money is for. |
 | `prompt_playback` | **no equivalent** | The rail has no notion of what the human asked for. |
 
@@ -47,7 +47,7 @@ against it at authorisation time.
 A UPI PIN authorises the *block* to the issuer; it is not a payer-held key that a
 merchant can verify independently. Parchi's Ed25519 signature is verifiable by
 anyone holding the payer's public key, which is what makes the evidence pack
-useful in a dispute — the merchant can prove what the human approved without
+useful in a dispute: the merchant can prove what the human approved without
 asking the issuer to vouch for it.
 
 In a real integration these coexist: the PIN authorises the block on the rail, and

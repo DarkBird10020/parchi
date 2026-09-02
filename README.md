@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-130%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-133%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -69,7 +69,7 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python -m pytest tests/ -q    # 130 tests
+python -m pytest tests/ -q    # 133 tests
 python tests/test_attacks.py  # 48 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```
@@ -234,6 +234,13 @@ sees is not a control:
 | The agent buys outside the approved categories | *"The agent tried to buy something outside the categories you approved"*, with the engine's own reason underneath |
 | Someone edits a past verdict in the log | *"Audit log has been altered"*, naming the record whose hash stopped matching |
 | The merchant ships something else | *"Refund issued automatically"*, with the amount that went back |
+Those clear themselves after five seconds, so the **bell in the header** is where
+they stay readable. It carries an unread count, opens a history of everything
+raised, worst first, and each entry shows the severity, the class of attack, the
+time, the engine's own reason, and where the alert was delivered. The history is
+server state read from `/api/alerts`, not a list held in the tab, so it survives a
+reload and shows alerts raised while nobody was looking. Opening the bell is what
+marks them seen; it never deletes them.
 
 ### The second checkpoint, after the money moves
 

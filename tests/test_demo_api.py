@@ -413,3 +413,39 @@ def test_the_injected_product_page_is_reported_as_an_attack_on_the_agent():
     assert r["decision"]["verdict"] == "BLOCK"
     assert r["threat"]["kind"] == "prompt_injection"
     assert r["threat"]["severity"] == "critical"
+
+
+def test_the_alert_payload_carries_every_field_the_history_tray_renders():
+    """The bell renders id, timestamp, kind, severity, summary, detail and where
+    it was delivered. Dropping any of those leaves a blank row in the UI and
+    nothing in the tests, so the contract is pinned here rather than in a
+    comment."""
+    client.post("/api/authorize", json={"scenario": "payee_substitution"})
+    alerts = client.get("/api/alerts").json()["alerts"]
+    assert alerts, "a refused purchase raised no alert"
+    a = alerts[0]
+    for field in ("id", "ts", "kind", "severity", "summary", "detail", "delivered"):
+        assert field in a, f"the history tray renders {field} and it is missing"
+    assert a["severity"] in ("critical", "high", "info")
+    assert isinstance(a["ts"], int) and a["ts"] > 0
+    assert isinstance(a["delivered"], list) and a["delivered"]
+
+
+def test_alert_ids_are_unique_so_the_unread_count_can_be_trusted():
+    """The bell counts alerts this tab has not opened yet, keyed on id. Duplicate
+    ids would under-count silently."""
+    for scenario in ("over_cap", "wrong_category", "expired", "wrong_method"):
+        client.post("/api/authorize", json={"scenario": scenario})
+    ids = [a["id"] for a in client.get("/api/alerts").json()["alerts"]]
+    assert len(ids) == len(set(ids)), "duplicate alert ids"
+
+
+def test_the_history_survives_a_page_the_browser_never_had_open():
+    """The whole reason for the bell: toasts clear after five seconds, so the
+    record has to live somewhere a reload can still find it."""
+    client.post("/api/authorize", json={"scenario": "agent_substitution"})
+    first = client.get("/api/alerts").json()["alerts"]
+    # A second, entirely separate read, as a fresh page load would do.
+    second = client.get("/api/alerts").json()["alerts"]
+    assert [a["id"] for a in first] == [a["id"] for a in second]
+    assert any(a["kind"] == "agent_impersonation" for a in second)

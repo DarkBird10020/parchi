@@ -335,6 +335,41 @@
 .chip{border:1px solid var(--rule); background:var(--paper); border-radius:99px;
       padding:5px 10px; font:11.5px var(--mono); color:var(--ink-2); cursor:pointer}
 .chip:hover{border-color:var(--ink-4); color:var(--ink)}
+
+/* Notification history. The toasts clear themselves after five seconds, so
+   without somewhere to look afterwards the record would only exist on the
+   server. The bell is that somewhere. */
+.bell{position:relative; border:1px solid var(--rule); background:var(--card);
+      border-radius:3px; width:34px; height:30px; cursor:pointer; padding:0;
+      color:var(--ink-2); font-size:15px; line-height:1}
+.bell:hover{border-color:var(--ink-4); color:var(--ink)}
+.bell[aria-expanded="true"]{border-color:var(--ink); color:var(--ink)}
+.bell .count{position:absolute; top:-7px; right:-7px; min-width:17px; height:17px;
+             border-radius:99px; background:var(--block); color:#fff;
+             font:11px/17px var(--mono); text-align:center; padding:0 4px}
+.bell .count[hidden]{display:none}
+.tray{position:absolute; top:44px; right:0; width:min(430px, calc(100vw - 28px));
+      background:var(--card); border:1px solid var(--rule); border-radius:3px;
+      box-shadow:0 14px 40px rgba(22,19,14,.18); z-index:60; overflow:hidden}
+.tray[hidden]{display:none}
+.trayhead{display:flex; align-items:center; gap:10px; padding:11px 14px;
+          border-bottom:1px dashed var(--rule); font:12px var(--mono);
+          color:var(--ink-3); letter-spacing:.04em; text-transform:uppercase}
+.traylist{max-height:min(420px, 60vh); overflow-y:auto}
+.trayitem{padding:11px 14px; border-bottom:1px solid var(--rule-2);
+          border-left:4px solid var(--rule-2)}
+.trayitem:last-child{border-bottom:0}
+.trayitem.critical{border-left-color:var(--block); background:#FFF8F6}
+.trayitem.high{border-left-color:var(--stepup)}
+.trayitem.info{border-left-color:var(--rule)}
+.trayitem .sev{font:10.5px var(--mono); letter-spacing:.08em; text-transform:uppercase;
+               color:var(--ink-3)}
+.trayitem .sev b{color:var(--ink)}
+.trayitem .sum{font-size:14px; margin-top:3px; line-height:1.45}
+.trayitem .det{font:11px/1.5 var(--mono); color:var(--ink-3); margin-top:4px;
+               word-break:break-word}
+.trayempty{padding:26px 14px; text-align:center; color:var(--ink-3); font-size:13.5px}
+
 </style>
 </head>
 <body>
@@ -349,6 +384,19 @@
       <a href="#numbers">Numbers</a>
       <a href="#how">How it works</a>
       <a href="#limits">Limits</a>
+    </div>
+    <div style="position:relative">
+      <button class="bell" id="bell" aria-expanded="false" aria-controls="tray"
+              aria-label="Notification history" title="Notification history">
+        &#9788;<span class="count" id="bellCount" hidden>0</span>
+      </button>
+      <div class="tray" id="tray" hidden role="region" aria-label="Notification history">
+        <div class="trayhead">
+          <span>Notifications</span>
+          <span style="margin-left:auto" id="trayMeta"></span>
+        </div>
+        <div class="traylist" id="trayList"></div>
+      </div>
     </div>
   </div>
 </nav>
@@ -732,24 +780,78 @@ function notifyVerdict(scenarioId, d){
 
 // ---------------------------------------------------------------- settlement
 // The checkpoint runs before the money moves. This is the second look, after it.
-// The alert count is server state, so it is still there after a refresh and
-// after the tab is closed. That is the difference between a notification and a
-// popup nobody saw.
+// ---------------------------------------------------------------- history
+// Toasts clear after five seconds. The server keeps every alert, so the bell is
+// where they are still readable afterwards, and the count is what was raised
+// since this tab last looked rather than since the process started.
+let seenAlertIds = new Set();
+let alertsCache = [];
+
+function severityRank(s){ return s === "critical" ? 0 : s === "high" ? 1 : 2; }
+
+function renderTray(){
+  const list = $("#trayList");
+  if(!alertsCache.length){
+    list.innerHTML = '<div class="trayempty">Nothing raised yet. '
+      + 'Refused purchases and a broken audit log show up here.</div>';
+    $("#trayMeta").textContent = "";
+    return;
+  }
+  list.innerHTML = alertsCache.map(a => {
+    const when = new Date(a.ts).toLocaleTimeString();
+    return '<div class="trayitem ' + esc(a.severity) + '">'
+      + '<div class="sev"><b>' + esc(a.severity) + '</b> &middot; ' + esc(a.kind)
+      + ' &middot; ' + esc(when) + '</div>'
+      + '<div class="sum">' + esc(a.summary) + '</div>'
+      + '<div class="det">' + esc(a.detail) + '</div>'
+      + '</div>';
+  }).join("");
+  const crit = alertsCache.filter(a => a.severity === "critical").length;
+  $("#trayMeta").textContent = alertsCache.length + " total"
+    + (crit ? " · " + crit + " critical" : "");
+}
+
+function updateBell(){
+  const unseen = alertsCache.filter(a => !seenAlertIds.has(a.id)).length;
+  const badge = $("#bellCount");
+  badge.textContent = unseen > 99 ? "99+" : String(unseen);
+  badge.hidden = unseen === 0;
+}
+
 async function loadAlerts(){
   try {
-    const a = await api("/api/alerts");
+    const a = await api("/api/alerts?limit=50");
+    alertsCache = (a.alerts || []).slice().sort((x, y) =>
+      severityRank(x.severity) - severityRank(y.severity) || y.ts - x.ts);
+    renderTray();
+    updateBell();
+
     const el = $("#alertStrip");
-    if(!el) return;
-    if(!a.alerts.length){
-      el.textContent = "no alerts raised";
-      el.className = "chainstate ok";
-      return;
+    if(el){
+      if(!alertsCache.length){
+        el.textContent = "no alerts raised";
+        el.className = "chainstate ok";
+      } else {
+        const top = alertsCache[0];
+        el.className = "chainstate " + (top.severity === "critical" ? "bad" : "ok");
+        el.textContent = alertsCache.length + " alert(s) on the server, latest: "
+          + top.summary + " (" + top.severity + ", sent to " + top.delivered.join(", ") + ")";
+      }
     }
-    const top = a.alerts[0];
-    el.className = "chainstate " + (top.severity === "critical" ? "bad" : "ok");
-    el.textContent = a.alerts.length + " alert(s) on the server, latest: "
-      + top.summary + " (" + top.severity + ", sent to " + top.delivered.join(", ") + ")";
-  } catch(e){ /* the strip is informational; never break the page for it */ }
+  } catch(e){ /* the tray is informational; never break the page for it */ }
+}
+
+function toggleTray(open){
+  const tray = $("#tray");
+  const bell = $("#bell");
+  const show = open === undefined ? tray.hidden : open;
+  tray.hidden = !show;
+  bell.setAttribute("aria-expanded", String(show));
+  if(show){
+    // Opening is what marks them seen. The alerts themselves stay on the server.
+    alertsCache.forEach(a => seenAlertIds.add(a.id));
+    updateBell();
+  }
 }
 // ---------------------------------------------------------------- chat demo
 function chatSay(kind, text){
@@ -1080,6 +1182,16 @@ $("#chatform").addEventListener("submit", (e) => {
 });
 document.querySelectorAll(".chip").forEach(c =>
   c.addEventListener("click", () => sendChat(c.dataset.say)));
+$("#bell").addEventListener("click", (e) => { e.stopPropagation(); toggleTray(); });
+document.addEventListener("click", (e) => {
+  if(!$("#tray").hidden && !$("#tray").contains(e.target)) toggleTray(false);
+});
+document.addEventListener("keydown", (e) => {
+  if(e.key === "Escape" && !$("#tray").hidden){ toggleTray(false); $("#bell").focus(); }
+});
+// A broken chain found by someone else's read should reach this tab too.
+setInterval(loadAlerts, 15000);
+
 
 $("#btnTamper").addEventListener("click", async () => {
   const r = await fetch("/api/tamper", {method:"POST"});

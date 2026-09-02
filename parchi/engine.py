@@ -52,6 +52,7 @@ class Engine:
         timeout: float = 4.0,
         step_up_paise: int = STEP_UP_PAISE,
         use_intent: bool = True,
+        model: str | None = None,
     ) -> None:
         self.ledger = ledger
         self.nonces = nonces or NonceStore()
@@ -59,6 +60,7 @@ class Engine:
         self.timeout = timeout
         self.step_up_paise = step_up_paise
         self.use_intent = use_intent
+        self.model = model
 
     def authorize(
         self,
@@ -79,7 +81,8 @@ class Engine:
             # Rules are satisfied. Now the one question rules cannot answer.
             if self.use_intent:
                 intent = intent_matches(
-                    mandate, cart, timeout=self.timeout, provider=self.provider
+                    mandate, cart, timeout=self.timeout, provider=self.provider,
+                    model=self.model,
                 )
             if intent is not None and not intent.match and intent.degraded:
                 # Failing closed does not have to mean losing the customer. The

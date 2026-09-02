@@ -83,7 +83,9 @@ def score(rows: list[dict], predictions: list[str]) -> dict:
 
 
 def run_engine(rows: list[dict], pub: Ed25519PublicKey, use_intent: bool,
-               provider: str, ledger_path: str | None) -> tuple[list[str], dict]:
+               provider: str, ledger_path: str | None,
+               model: str | None = None,
+               timeout: float = 4.0) -> tuple[list[str], dict]:
     if ledger_path and os.path.exists(ledger_path):
         os.remove(ledger_path)
     engine = Engine(
@@ -91,6 +93,8 @@ def run_engine(rows: list[dict], pub: Ed25519PublicKey, use_intent: bool,
         nonces=NonceStore(),
         provider=provider,
         use_intent=use_intent,
+        model=model,
+        timeout=timeout,
     )
     preds, degraded, blocked_by = [], 0, {}
     t0 = time.time()
@@ -146,17 +150,59 @@ def markdown(results: dict) -> str:
     return "\n".join(lines)
 
 
+def _guard_degraded_run(rows: list[dict], pub: Ed25519PublicKey,
+                        provider: str, model: str | None) -> None:
+    """Make one real call before scoring 1,000 rows against a dead endpoint.
+
+    Fail fast and loudly: a misconfigured key does not raise here, it degrades,
+    and a fully degraded batch produces a complete, plausible, meaningless table.
+    """
+    from parchi.intent_match import intent_matches
+
+    row = rows[0]
+    v = intent_matches(IntentMandate.from_dict(row["mandate"]),
+                       Cart.from_dict(row["cart"]), timeout=30.0,
+                       provider=provider, model=model)
+    if v.degraded:
+        raise SystemExit(
+            f"\nrefusing to score: the intent check is not reachable.\n"
+            f"  provider : {v.provider}\n"
+            f"  reason   : {v.reason}\n"
+            f"Fix the configuration, or run --provider heuristic / off on purpose.\n"
+        )
+    print(f"intent check live: {v.provider}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=DATA)
     ap.add_argument("--provider", default="auto",
-                    choices=["auto", "api", "heuristic", "off"])
+                    choices=["auto", "api", "openai", "heuristic", "off"])
+    ap.add_argument("--model", default=None,
+                    help="model id for --provider openai; "
+                         "see python -m parchi.models_cli --filter glm")
+    ap.add_argument("--timeout", type=float, default=4.0,
+                    help="wall-clock budget for one intent call. The 4s default "
+                         "is the production posture - a slow answer in front of a "
+                         "payment is a wrong answer. Raise it when measuring a "
+                         "slower endpoint, and say so when quoting the numbers")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="score only the first N rows - use this to measure the "
+                         "cost of a real-model run before paying for 1,000 of them")
     ap.add_argument("--out", default=os.path.join(HERE, "results.json"))
     ap.add_argument("--gate", action="store_true",
                     help="exit non-zero if the results regress (used by CI)")
     args = ap.parse_args()
 
     rows = load_rows(args.data)
+    if args.limit:
+        # A subsample is not the published scoreboard: the case mix is only
+        # correct over the whole batch, so a truncated run must never overwrite
+        # results.json or be handed to the gate.
+        rows = rows[:args.limit]
+        if args.gate:
+            ap.error("--gate scores the full batch; drop --limit")
+        args.out = os.path.join(HERE, f"results_sample_{args.limit}.json")
     with open(META, encoding="utf-8") as f:
         meta = json.load(f)
     pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(meta["payer_public_key"]))
@@ -169,13 +215,20 @@ def main() -> None:
     approaches["block_all_agent_traffic"] = {
         "metrics": score(rows, [BLOCK] * len(rows)), "run": {}}
 
-    preds_rules, run_rules = run_engine(rows, pub, False, provider, None)
+    preds_rules, run_rules = run_engine(rows, pub, False, provider, None, args.model)
     approaches["rules_only"] = {
         "metrics": score(rows, preds_rules), "run": run_rules,
         "per_case": per_case(rows, preds_rules)}
 
+    # A model run that quietly called nothing is the worst outcome here: every
+    # row still gets a verdict, the table still prints, and the numbers are the
+    # fallback's rather than the model's. Say so, loudly, in the run itself.
+    if provider not in ("heuristic", "off"):
+        _guard_degraded_run(rows, pub, provider, args.model)
+
     ledger_path = os.path.join(HERE, "ledger.jsonl")
-    preds_parchi, run_parchi = run_engine(rows, pub, True, provider, ledger_path)
+    preds_parchi, run_parchi = run_engine(rows, pub, True, provider, ledger_path,
+                                          args.model, args.timeout)
     chain_ok, chain_msg, chain_n = verify_chain(ledger_path)
     approaches["parchi"] = {
         "metrics": score(rows, preds_parchi), "run": run_parchi,

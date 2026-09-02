@@ -52,6 +52,27 @@ The suite is the contract: CI fails if any pattern regresses.
 
 A fix without a pattern is a fix that can silently come undone.
 
+## API keys
+
+The intent check can call a hosted model, so this repo handles a credential.
+
+- **Never in source.** Keys are read from the environment, or from `.env`, which is
+  in `.gitignore`. `.env.example` carries placeholders only.
+- **Never in output.** `redact()` scrubs the key from every exception string before
+  it can reach a log, a ledger record or a pasted stack trace — the usual way a key
+  escapes. A test asserts this, including on the degraded path, where the error text
+  is written into the ledger.
+- **A real env var always beats `.env`**, so CI secrets cannot be shadowed by a
+  stale local file.
+- **Spend is capped.** `PARCHI_MAX_CALLS` (default 1200) is a hard per-process
+  ceiling. It raises rather than degrading, because a silent fallback would produce
+  a full scoreboard whose numbers are not the model's.
+- Exported conversation transcripts (`20??-??-??-*.txt`) are gitignored: they
+  contain whatever was pasted into a session.
+
+If a key does reach a commit, rotating it at the provider is the fix — removing the
+commit is not, because it has already been fetched.
+
 ## Known blind spots
 
 Recorded rather than hidden:

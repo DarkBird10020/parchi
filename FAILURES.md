@@ -242,6 +242,61 @@ predictable way this project dies.
 
 ---
 
+### 10. The first real model run, and three things the offline stand-in had been hiding
+
+**Broke.** Wired up an OpenAI-compatible provider (nano-gpt, GLM) so the scoreboard
+could finally run against a model instead of the lexical stand-in. First 25-row
+sample: **0.2 seconds**, and 21 of 25 rows marked degraded.
+
+**Assumed.** A network or auth problem at the endpoint.
+
+**Actually.** Three separate bugs, stacked, each of which produced a *complete,
+plausible table* rather than an error. That is the thread running through all of
+them: this system's failure mode is not a crash, it is a confident answer.
+
+1. **`.env` was never loaded on an explicit `--provider`.** `resolve_provider`
+   returned early for anything but `auto`, so the key was missing, every call
+   raised, and every row took the degraded path. The batch finished, the table
+   printed, and the numbers were the fallback's. Fixed by loading before the
+   branch — and by `_guard_degraded_run`, which now makes one real call before
+   scoring and refuses to continue if it degrades.
+
+2. **The 4-second timeout was shorter than the endpoint.** Raising it to 30s cut
+   degradation from 21 rows to 7 — but the remaining 7 were not timeouts at all.
+   Six were `getaddrinfo failed`. urllib opens a fresh socket, and therefore a
+   fresh DNS lookup, per request; a few hundred lookups in a couple of minutes
+   and the resolver simply stops answering. Fixed with one keep-alive connection
+   and a reconnect-once-on-transport-error rule. HTTP statuses are still never
+   retried — a 429 is the endpoint's answer, not a glitch. Degraded rows: 7 → 0.
+
+3. **The model was enforcing the price cap, and getting it wrong.** With the
+   transport fixed, precision fell to **57.1%** — three legitimate carts blocked,
+   Rs 11,667 of false-positive cost. The reasons were fluent and wrong:
+
+   > *"The cart contains a USB-C hub, which matches the authorised intent, but the
+   > total amount of Rs 4,077.26 exceeds the authorised maximum of Rs 5,000."*
+
+   Rs 4,077 does not exceed Rs 5,000. The prompt had been handing the model
+   `Maximum: Rs {cap}`, so it dutifully re-decided a question `check_amount` had
+   already answered exactly — and did it badly, because comparing two numbers is
+   the one thing a model should never be asked for here.
+
+**Changed.** The cap no longer appears in the prompt at all. The model is told, in
+so many words, that the limit, the method, the merchant and the category list were
+already checked by arithmetic and are not its job, and that it must never answer
+false because of a price. Line prices stay, because recognising an unrequested
+add-on needs them. Same 25 rows afterwards: **recall 100%, precision 100%, 0
+degraded.**
+
+**Cost.** ~90 minutes. It is the same lesson as entry 1, arriving from the
+opposite direction: there, the model was a worse copy of a rule and added nothing;
+here, the model was a worse copy of a rule and actively destroyed revenue. The
+boundary is the whole design — rules decide anything arithmetic and exact, the
+model decides only the one thing arithmetic cannot: is this the thing the human
+asked for.
+
+---
+
 ### Still unsolved
 
 **The headline number in the scoreboard is not a model number.**
@@ -254,10 +309,14 @@ model behaves on real merchant titles like *"ASICS GEL-Venture 9 (2E Wide) Men's
 Trail Runner — Piedmont Grey"*, where the human said "trail sneakers" and no word
 overlaps at all.
 
-I know the direction the number moves (false positives up, from the legitimate rows
-whose titles do not echo the playback) but not the size, and I have not measured it.
-Everything the repo prints is labelled with the provider that produced it —
-`heuristic` or `api` — so nothing here claims to be an LLM result that is not one.
-Running the batch against `--provider api` and reporting *that* table, with the
-false-positive cost in rupees, is the next thing this project needs and the reason
-the provider is a switch rather than an assumption.
+**Partly measured now.** A 25-row sample against `z-ai/glm-4.7-flash` returns
+recall 100%, precision 100%, 0 degraded — after entry 10 above. But 25 rows is 4
+violations; it cannot distinguish 100% from 96%, and the sample is the head of the
+file rather than a stratified draw. **The full 1,000-row model run has not been
+done**, and until it has, the headline table in the README is the heuristic's and
+is labelled as such.
+
+Everything the repo prints carries the provider that produced it — `heuristic`,
+`api:claude-opus-5`, `openai:z-ai/glm-4.7-flash` — so no number here claims to be a
+model result that is not one. Running the full batch and publishing *that* table,
+next to the heuristic one, is the next thing this project needs.

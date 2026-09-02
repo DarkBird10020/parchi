@@ -40,7 +40,11 @@ jobs:
         run: ruff check .
 
       - name: Unit tests
-        run: pytest tests/test_parchi.py -q
+        # tests/ not one file: a new test module that nothing runs is not a test.
+        # No key is set here, so the provider tests exercise the offline paths -
+        # budget, redaction, dotenv precedence, degradation - which is exactly
+        # the half that must never depend on a network.
+        run: pytest tests/ -q
 
       - name: Adversarial patterns
         run: python tests/test_attacks.py

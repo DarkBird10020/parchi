@@ -16,3 +16,13 @@ eval/ledger.jsonl
 
 # The seeded design canvas is a build output of design/*.dc.html
 design/parchi-landing-page.html
+
+# Exported conversation transcripts - these contain whatever was pasted into
+# the session, including keys. Never commit one.
+*-local-command-caveat*.txt
+20??-??-??-*.txt
+.env.local
+
+# Sub-sampled scoreboard runs (--limit). Not the published batch; keeping them
+# out stops a 25-row number being mistaken for the 1,000-row one.
+eval/results_sample_*.json

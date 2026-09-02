@@ -70,12 +70,36 @@ python tests/test_attacks.py  # 28 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000 — the page in the video
 ```
 
-Runs end to end with **no API key**. To use the real model for the one AI call:
+Runs end to end with **no API key**. The one AI call has three backends, and
+whichever ran is stamped on every verdict, ledger record and table:
+
+| `--provider` | Backend | When |
+| :--- | :--- | :--- |
+| `heuristic` | Offline lexical stand-in | Default with no key. Reproducible, no network |
+| `api` | Anthropic `claude-opus-5` | `ANTHROPIC_API_KEY` is set |
+| `openai` | **Any OpenAI-compatible endpoint** — nano-gpt, OpenRouter, Together, local vLLM | `PARCHI_OPENAI_API_KEY` is set |
+| `off` | Nothing. Always degrade | The failure you demo on camera |
+
+To use an OpenAI-compatible endpoint (the model defaults to the GLM family and is
+resolved against the endpoint's **live `/models` catalogue**, so a retired model
+name cannot silently turn every row into a fallback):
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...     # Windows: set ANTHROPIC_API_KEY=...
-python eval/evaluate.py --provider api
+cp .env.example .env                             # then put your key in .env
+python -m parchi.models_cli --filter glm --pick  # browse and choose a model
+python eval/evaluate.py --provider openai --limit 25 --timeout 30
 ```
+
+`.env` is gitignored, the key is never written to the ledger or a log line, and
+`PARCHI_MAX_CALLS` caps how many model calls one process may make — a runaway loop
+over a 1,000-row batch is the realistic way a subscription gets burned.
+
+> [!WARNING]
+> A misconfigured endpoint does not crash this system, it **degrades** — and a
+> degraded row still returns a verdict, so the batch completes and the table looks
+> fine while nothing was called. `evaluate.py` therefore makes one live call before
+> scoring and refuses to run if it comes back degraded. That check exists because
+> the bug it catches happened. See [FAILURES.md](FAILURES.md) → entry 10.
 
 ---
 
@@ -138,9 +162,14 @@ No rule can see it. That is the entire reason the model call exists.
 > **Read this before quoting the Parchi row.** It was produced by the offline
 > `heuristic` intent matcher, not by a model — this repo runs end to end with no API
 > key, and that number is not an LLM number. Every table, ledger record and evidence
-> pack is stamped with the provider that produced it (`heuristic` or `api`). See
-> [FAILURES.md](FAILURES.md) → *Still unsolved* for why I expect the real number to
-> be lower, and what I have not measured.
+> pack is stamped with the provider that produced it — `heuristic`,
+> `api:claude-opus-5`, or `openai:<model>`.
+>
+> A **25-row sample** against `z-ai/glm-4.7-flash` does return recall 100%,
+> precision 100%, 0 degraded — but 25 rows is 4 violations, which cannot tell 100%
+> apart from 96%. The full 1,000-row model run has not been done. See
+> [FAILURES.md](FAILURES.md) → entry 10 for the three bugs that first sample
+> uncovered, and *Still unsolved* for what remains unmeasured.
 
 ### When the model dies
 

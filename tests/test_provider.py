@@ -170,7 +170,7 @@ def test_the_prompt_does_not_ask_the_model_to_enforce_the_cap():
     assert "4,077.26" in prompt           # the line price still does
 
 
-def test_the_prompt_tells_the_model_to_ignore_a_budget_in_the_playback():
+def test_the_prompt_carries_the_warning_earned_by_two_failed_attempts():
     """The cap was removed from the prompt, and the model kept enforcing it anyway.
 
     It reaches the model a second way: the playback is the human's own sentence,
@@ -184,4 +184,4 @@ def test_the_prompt_tells_the_model_to_ignore_a_budget_in_the_playback():
                     prompt_playback="buy coffee beans under Rs 5,000")
     cart = Cart((CartLine("coffee beans 1kg", "groceries", 430_140),), "upi", "p")
     prompt = " ".join(_build_prompt(m, cart).split())
-    assert "Price is never evidence" in prompt
+    assert "made it worse" in prompt   # the warning against a third attempt

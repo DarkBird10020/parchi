@@ -43,6 +43,7 @@ from parchi.mandate import (
 )
 from parchi.openai_provider import load_dotenv
 from parchi.razorpay import RazorpayClient, RazorpayError
+from parchi.threat import CRITICAL, ProbeDetector, classify
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -142,6 +143,10 @@ def raise_alert(kind: str, severity: str, summary: str, detail: str,
 # already been reported so one break does not raise an alert per page refresh.
 _reported_breaks: set[str] = set()
 
+# Repeated refusals from one actor are a separate signal from any single
+# refusal, so they are counted rather than inferred from the alert list.
+probes = ProbeDetector()
+
 
 def check_chain_and_alert() -> dict[str, Any]:
     ok, msg, n = verify_chain(LEDGER_PATH)
@@ -153,6 +158,41 @@ def check_chain_and_alert() -> dict[str, Any]:
             f"{msg}. Every verdict after this record is no longer provable.",
         )
     return {"intact": ok, "detail": msg, "records": n}
+
+
+def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
+                  txn_id: str | None = None) -> dict[str, Any] | None:
+    """Name what was attempted, and tell the service about it.
+
+    Called after the verdict, never before. Nothing in here can change what was
+    decided; it decides only who hears about it.
+    """
+    threat = classify(
+        decision.verdict,
+        [c.to_dict() for c in decision.checks],
+        decision.intent.to_dict() if decision.intent else None,
+        merchant_note=cart.merchant_note,
+    )
+    if threat is None:
+        return None
+
+    raise_alert(threat.kind, threat.severity, threat.summary, threat.detail,
+                txn_id=txn_id)
+
+    # And separately: is this the fifth attempt in a minute rather than the
+    # first? Every individual verdict here was correct and no money moved, which
+    # is exactly why nobody would otherwise notice.
+    actor = cart.agent_id or mandate.payer_id or "unknown"
+    count = probes.record(actor)
+    if probes.is_probing(count):
+        raise_alert(
+            "probing", CRITICAL,
+            f"{count} refused attempts from '{actor}' in under a minute",
+            "Individually correct refusals. Together they look like someone "
+            "mapping where the checkpoint stops them.",
+            txn_id=txn_id,
+        )
+    return {**threat.to_dict(), "attempts_in_window": count}
 
 
 # --------------------------------------------------------------------------
@@ -469,6 +509,7 @@ def authorize(req: AuthorizeRequest):
         use_intent=engine.use_intent, model=engine.model,
     )
     decision = request_engine.authorize(m, sig, PUB, cart, txn_id=txn_id)
+    threat = report_threat(decision, cart, m, txn_id)
 
     if decision.verdict != "BLOCK" and req.scenario != "replay":
         last_authorized = {"mandate": m.to_dict(), "cart": cart.to_dict(), "signature": sig}
@@ -493,6 +534,7 @@ def authorize(req: AuthorizeRequest):
         "authorization_id": txn_id,
         "state": "PENDING" if decision.verdict == STEP_UP else decision.verdict,
         "approval_token": approval_token,
+        "threat": threat,
         "razorpay": {"configured": razorpay is not None, "mode": "test" if razorpay else None},
     }
 
@@ -516,6 +558,7 @@ def authorize_payload(req: GenericAuthorizeRequest):
     if txn_id in authorizations:
         raise HTTPException(409, "transaction id already exists")
     decision = engine.authorize(mandate, req.signature, pub, cart, txn_id=txn_id)
+    report_threat(decision, cart, mandate, txn_id)
     remember_authorization(txn_id, mandate, req.signature, cart, decision)
     return authorization_response(txn_id, authorizations[txn_id])
 
@@ -879,6 +922,7 @@ def chat(req: ChatRequest):
 
     txn_id = "txn_" + uuid.uuid4().hex[:10]
     decision = engine.authorize(mandate, signature, PUB, cart, txn_id=txn_id)
+    threat = report_threat(decision, cart, mandate, txn_id)
     if decision.verdict != BLOCK:
         remember_authorization(txn_id, mandate, signature, cart, decision)
 
@@ -894,6 +938,7 @@ def chat(req: ChatRequest):
                     "cap": rupees(mandate.max_amount_paise)},
         "evidence": build_pack(mandate, signature, cart, decision, PUB_HEX,
                                ledger_path=LEDGER_PATH),
+        "threat": threat,
         "shop": catalogue["shop"]["name"],
     }
 
@@ -970,6 +1015,7 @@ def reset():
     # The ledger is gone, so a break that was already reported is no longer the
     # same break. Forgetting lets the next tamper alert fire.
     _reported_breaks.clear()
+    probes.reset()
     return {"ok": True}
 
 

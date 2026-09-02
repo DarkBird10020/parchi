@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-31%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-52%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-111%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -68,7 +68,7 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python tests/test_parchi.py   # 21 unit tests, no pytest needed
+python -m pytest tests/ -q    # 111 tests
 python tests/test_attacks.py  # 31 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```
@@ -265,10 +265,40 @@ support console would poll:
 curl localhost:8000/api/alerts
 ```
 
-| Event | Severity |
-|:--- |:--- |
-| `ledger_tampered`, a past verdict no longer matches its hash | critical |
-| `settlement_mismatch`, a refund was issued automatically | high |
+A refusal is not just a refusal. A cart over the cap is an agent with a stale
+budget; a cart signed by an unregistered key is someone testing whether the
+signature check is real. Both come back `BLOCK`, and a fraud team needs to hear
+about exactly one of them. Every refusal is classified before it is reported:
+
+| What was attempted | Reported as | Severity |
+|:--- |:--- |:--- |
+| Slip not signed by the payer | `mandate_forgery` | critical |
+| Slip presented at a different merchant | `payee_substitution` | critical |
+| Cart signed by an unregistered agent | `agent_impersonation` | critical |
+| Product page carrying instructions for the agent | `prompt_injection` | critical |
+| A past verdict no longer matches its hash | `ledger_tampered` | critical |
+| Five refusals from one actor inside a minute | `probing` | critical |
+| Spent slip presented again | `replay_attack` | high |
+| Unauthorised payment instrument | `instrument_abuse` | high |
+| Over the cap / outside the categories | `cap_breach`, `scope_breach` | high |
+| Quantity used to drain the budget | `quantity_abuse` | high |
+| Agent bought something unasked for | `intent_mismatch` | high |
+| Refund issued at settlement | `settlement_mismatch` | high |
+| Slip outside its validity window | `expired_mandate` | info |
+
+Two of those are worth dwelling on. **`probing`** fires when the same actor is
+refused five times in a minute: every individual verdict was correct and no money
+moved, which is precisely why nobody would otherwise notice someone mapping where
+the wall is. And **`prompt_injection`** separates a merchant attacking the agent
+from an agent going astray on its own, which are the same `BLOCK` and completely
+different incidents.
+
+The classifier never decides anything. It reads a verdict that already happened,
+so a wrong label costs an alert rather than a payment. That is what lets the
+detection be heuristic while the enforcement is not.
+
+An expired slip is `info` on purpose. Paging a human for a slow agent is how they
+learn to ignore the `critical` that matters.
 
 Set `PARCHI_ALERT_WEBHOOK` and each one is posted outward as well. That delivery
 is fire-and-forget with a 3 second timeout, because monitoring that can take down

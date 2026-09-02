@@ -3,6 +3,7 @@ import hmac as hmac_mod
 import json
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from demo import server
@@ -360,3 +361,55 @@ def test_the_agent_sees_the_merchants_text_verbatim():
     rendered = shopper.render_catalogue(products)
     assert "AI SHOPPING ASSISTANTS" in rendered
     assert "care-2y" in rendered
+
+
+# --------------------------------------------------------------------------
+# threat reporting, end to end
+# --------------------------------------------------------------------------
+
+@pytest.mark.parametrize("scenario,kind,severity", [
+    ("over_cap", "cap_breach", "high"),
+    ("wrong_category", "scope_breach", "high"),
+    ("wrong_method", "instrument_abuse", "high"),
+    ("expired", "expired_mandate", "info"),
+    ("payee_substitution", "payee_substitution", "critical"),
+    ("agent_substitution", "agent_impersonation", "critical"),
+])
+def test_each_refused_scenario_reaches_the_service_named_and_ranked(
+        scenario, kind, severity):
+    r = client.post("/api/authorize", json={"scenario": scenario}).json()
+    assert r["decision"]["verdict"] == "BLOCK"
+    assert r["threat"]["kind"] == kind
+    assert r["threat"]["severity"] == severity
+
+    raised = client.get("/api/alerts").json()["alerts"]
+    assert any(a["kind"] == kind for a in raised), f"{kind} never reached /api/alerts"
+
+
+def test_an_allowed_purchase_raises_nothing():
+    """Alert fatigue is a security failure. A clean purchase must be silent."""
+    r = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    assert r["decision"]["verdict"] == "ALLOW"
+    assert r["threat"] is None
+    assert client.get("/api/alerts").json()["alerts"] == []
+
+
+def test_repeated_refusals_escalate_to_a_probing_alert():
+    """Every one of these verdicts is correct and no money moves, which is why
+    nobody would otherwise notice someone mapping the checkpoint."""
+    for _ in range(5):
+        client.post("/api/authorize", json={"scenario": "over_cap"})
+    alerts = client.get("/api/alerts").json()
+    probing = [a for a in alerts["alerts"] if a["kind"] == "probing"]
+    assert probing, "five refusals in a row raised no probing alert"
+    assert probing[0]["severity"] == "critical"
+
+
+def test_the_injected_product_page_is_reported_as_an_attack_on_the_agent():
+    """Same BLOCK as an ordinary intent mismatch, different attacker, so it has
+    to reach the service as a different thing."""
+    server.engine.provider = "heuristic"
+    r = client.post("/api/authorize", json={"scenario": "injection"}).json()
+    assert r["decision"]["verdict"] == "BLOCK"
+    assert r["threat"]["kind"] == "prompt_injection"
+    assert r["threat"]["severity"] == "critical"

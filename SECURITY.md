@@ -74,6 +74,32 @@ The intent check can call a hosted model, so this repo handles a credential.
 If a key does reach a commit, rotating it at the provider is the fix, removing the
 commit is not, because it has already been fetched.
 
+## Telling someone
+
+Refusing a purchase silently wastes the only signal a fraud team could have used.
+Every refusal is classified by [`parchi/threat.py`](parchi/threat.py) and raised as
+an alert readable at `GET /api/alerts`, with `PARCHI_ALERT_WEBHOOK` posting them
+outward.
+
+`mandate_forgery`, `payee_substitution`, `agent_impersonation`, `prompt_injection`,
+`ledger_tampered` and `probing` are **critical**. `replay_attack`,
+`instrument_abuse`, `cap_breach`, `scope_breach`, `quantity_abuse`,
+`intent_mismatch` and `settlement_mismatch` are **high**. An expired slip is
+**info**, because paging a human for a slow agent is how they learn to ignore the
+critical that matters.
+
+Two properties worth stating:
+
+- **The classifier cannot change a verdict.** It reads a decision that already
+  happened. A wrong label costs an alert, never a payment, which is what allows the
+  detection to be heuristic while the enforcement is not.
+- **Repetition is its own signal.** Five refusals from one actor inside a minute
+  raises `probing`. Every one of those verdicts was correct and no money moved,
+  which is exactly why nobody would otherwise notice someone mapping the wall.
+
+The probe counter is in-process. Across several instances it needs shared state,
+which is a Redis and an operational story rather than a hackathon file.
+
 ## Known blind spots
 
 Recorded rather than hidden:

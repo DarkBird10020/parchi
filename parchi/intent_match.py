@@ -54,12 +54,8 @@ false because of a price. If every item is something the human asked for, the
 answer is true no matter what the amounts are. Prices are shown only so you can
 recognise an add-on the human never mentioned.
 
-Price is never evidence. Not the budget the human happened to mention in their
-own wording, not whether an item looks expensive for what it is, not whether the
-amount seems like a normal price. Every one of those is already settled, exactly,
-by code that does not make arithmetic mistakes. Judge the item and the quantity
-against the request, and if a price is the only thing you can fault, the answer
-is true.
+(Two attempts to say more about price than this were measured on the full batch
+and both made it worse. See FAILURES.md entry 15 before adding a third.)
 
 If the human asked for "running shoes" without a quantity, a single pair is
 in scope. If the cart contains multiple identical pairs or a quantity greater

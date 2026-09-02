@@ -326,7 +326,7 @@
         <span>AP2 intent mandate</span>
         <span>Ed25519 signed</span>
         <span>Hash-chained ledger</span>
-        <span>28 attack patterns</span>
+        <span>31 attack patterns</span>
         <span>1,000 labelled txns</span>
       </div>
       <div style="margin-top:28px" class="pill"><span class="pulse" aria-hidden="true"></span>
@@ -376,8 +376,8 @@
            evaluation. The number is reproducible, not a market-wide claim.</p>
       </div>
       <div>
-        <div class="big">8 <span style="font-size:26px; color:var(--ink-3)">rules +</span> 1</div>
-        <p>On the seeded 1,000-row evaluation, eight deterministic checks catch 235/260 violations.
+        <div class="big">10 <span style="font-size:26px; color:var(--ink-3)">rules +</span> 1</div>
+        <p>On the seeded 1,000-row evaluation, ten deterministic checks catch 235/280 violations.
            One model call handles the semantic intent gap.</p>
       </div>
       <div>
@@ -500,9 +500,10 @@
       </div>
       <div class="sheet">
         <div class="num">02 — THE RULES</div>
-        <h3>Eight deterministic checks</h3>
-        <p>Signature, expiry, payee, method, line items, category, cap, replay — in order,
-           short-circuiting on the first failure. No AI in that file.</p>
+        <h3>Ten deterministic checks</h3>
+        <p>Signature, expiry, payee, method, line items, quantity, category, cap, agent
+           identity, replay — in order, short-circuiting on the first failure. No AI in
+           that file.</p>
       </div>
       <div class="sheet">
         <div class="num">03 — THE ONE CALL</div>

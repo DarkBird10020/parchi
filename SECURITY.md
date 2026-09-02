@@ -37,10 +37,11 @@ Every bypass known to me is a named, executable pattern:
 python tests/test_attacks.py
 ```
 
-28 patterns covering forging, tampering, time manipulation, payee substitution,
-amount arithmetic, Unicode confusables, replay, and prompt injection aimed at the one
-model call — each with the verdict Parchi must return. **Six of them got through on
-the first run.** See [FAILURES.md](FAILURES.md) for what each one was.
+31 patterns covering forging, tampering, time manipulation, payee substitution,
+amount arithmetic, quantity inflation, agent impersonation, Unicode confusables, replay,
+and prompt injection aimed at the one model call — each with the verdict Parchi must
+return. **Six of them got through on the first run.** See [FAILURES.md](FAILURES.md)
+for what each one was.
 
 The suite is the contract: CI fails if any pattern regresses.
 

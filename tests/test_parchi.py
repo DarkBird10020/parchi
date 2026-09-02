@@ -9,6 +9,7 @@ import json
 import os
 import sys
 import tempfile
+from concurrent.futures import ThreadPoolExecutor
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -130,6 +131,17 @@ def test_replayed_nonce_blocks_the_second_time():
     assert second.verdict == BLOCK and second.checks[-1].name == "nonce_replay"
 
 
+def test_concurrent_replay_claims_the_nonce_once():
+    m, e = a_mandate(), engine()
+    sig = sign(m, KEY)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        verdicts = list(pool.map(
+            lambda _: e.authorize(m, sig, PUB, a_cart(), now=NOW).verdict,
+            range(2),
+        ))
+    assert sorted(verdicts) == [ALLOW, BLOCK]
+
+
 # --------------------------------------------------------------------------
 # the third answer, and the one model call
 # --------------------------------------------------------------------------
@@ -163,10 +175,10 @@ def test_degraded_intent_check_never_auto_approves_an_expensive_cart():
     assert d.degraded and d.verdict == STEP_UP
 
 
-def test_degraded_intent_check_still_allows_a_cheap_in_scope_cart():
+def test_degraded_intent_check_routes_a_cheap_cart_to_a_human():
     m = a_mandate()
     d = engine(provider="off").authorize(m, sign(m, KEY), PUB, a_cart(), now=NOW)
-    assert d.degraded and d.verdict == ALLOW
+    assert d.degraded and d.verdict == STEP_UP
 
 
 # --------------------------------------------------------------------------

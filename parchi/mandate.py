@@ -1,4 +1,4 @@
-"""AP2-aligned Intent Mandate: the slip.
+"""AP2-inspired signed intent record: the slip.
 
 The mandate is the object every other module operates on. It is signed by the
 human's key at approval time and never edited afterwards. Canonical bytes are
@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
 # A cart at or above this value is never waved through on rules alone.
 STEP_UP_PAISE = 1_000_000  # Rs 10,000
 
-MANDATE_TTL_SECONDS = 24 * 60 * 60  # AP2 guidance: ~24 hours
+MANDATE_TTL_SECONDS = 24 * 60 * 60  # Demo policy, not a protocol requirement.
 
 # A cart with more lines than this is not something a human approved in one
 # sentence; it is either a bug or someone probing the checkpoint.
@@ -48,8 +48,8 @@ def norm(value: Any) -> str:
 class IntentMandate:
     """The permission slip a human signs before an agent is allowed to spend.
 
-    Field names track Google's AP2 Intent Mandate rather than inventing a
-    format: implementing a published spec is the point.
+    Fields apply AP2-style signed intent constraints. This custom JSON record
+    does not claim AP2 wire-format conformance.
     """
 
     mandate_id: str

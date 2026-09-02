@@ -9,6 +9,7 @@ far as a category lookup.
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Iterable
 from dataclasses import asdict, dataclass
@@ -46,15 +47,27 @@ class NonceStore:
 
     def __init__(self) -> None:
         self._seen: set[str] = set()
+        self._lock = threading.Lock()
 
     def seen(self, nonce: str) -> bool:
-        return nonce in self._seen
+        with self._lock:
+            return nonce in self._seen
+
+    def claim(self, nonce: str) -> bool:
+        """Atomically spend an unused nonce."""
+        with self._lock:
+            if nonce in self._seen:
+                return False
+            self._seen.add(nonce)
+            return True
 
     def spend(self, nonce: str) -> None:
-        self._seen.add(nonce)
+        with self._lock:
+            self._seen.add(nonce)
 
     def reset(self) -> None:
-        self._seen.clear()
+        with self._lock:
+            self._seen.clear()
 
 
 def check_signature(m: IntentMandate, sig_hex: str, pub: Ed25519PublicKey) -> CheckResult:
@@ -171,12 +184,12 @@ def check_amount(m: IntentMandate, cart: Cart) -> CheckResult:
 
 
 def check_nonce(m: IntentMandate, store: NonceStore) -> CheckResult:
-    replayed = store.seen(m.nonce)
+    unused = store.claim(m.nonce)
     return CheckResult(
         "nonce_replay",
-        not replayed,
+        unused,
         "nonce unused - this mandate has not been spent before"
-        if not replayed
+        if unused
         else f"nonce {m.nonce[:12]}... already spent - replayed mandate",
     )
 

@@ -100,8 +100,21 @@ def test_an_unreachable_endpoint_degrades_instead_of_crashing(monkeypatch):
     cart = Cart((CartLine("running shoes", "footwear", 300_000),), "upi", "p")
     v = intent_matches(m, cart, timeout=2.0, provider="openai")
     assert v.degraded is True
-    assert v.match is True          # cheap cart: fail open on rules alone
+    assert v.match is False         # uncertainty always requires a human
     assert "sk-x" not in v.reason   # and never leak the key into the ledger
+
+
+def test_model_match_must_be_a_json_boolean(monkeypatch):
+    from parchi.intent_match import intent_matches
+
+    monkeypatch.setattr(op, "resolve_model", lambda: "model")
+    monkeypatch.setattr(op, "chat_json", lambda *args: {"match": "false", "reason": "no"})
+    m = new_mandate(payer_id="u", payee_id="p", allowed_methods=("upi",),
+                    max_amount_paise=500_000, allowed_categories=("footwear",),
+                    prompt_playback="buy running shoes")
+    cart = Cart((CartLine("running shoes", "footwear", 300_000),), "upi", "p")
+    verdict = intent_matches(m, cart, provider="openai")
+    assert verdict.degraded and verdict.match is False
 
 
 def test_the_prompt_does_not_ask_the_model_to_enforce_the_cap():

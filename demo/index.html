@@ -18,6 +18,7 @@
     --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
   }
   *{box-sizing:border-box}
+  [hidden]{display:none!important}
   html{scroll-behavior:smooth}
   @media (prefers-reduced-motion: reduce){
     html{scroll-behavior:auto}
@@ -360,24 +361,24 @@
 <section id="gap">
   <div class="wrap">
     <div class="sechead">
-      <div class="eyebrow">The hole nobody shipped into</div>
-      <h2>Card networks verify the agent is real. Nobody verifies the human approved <span class="it">this</span> purchase.</h2>
+      <div class="eyebrow">The transaction-level intent gap</div>
+      <h2>Agentic payments need enforceable intent at the moment money moves.</h2>
       <p class="muted">
-        Razorpay already shipped agents that spend money — agentic checkout, UPI Reserve Pay,
-        Agent Studio. The layer that decides whether the spending was <span class="it">allowed</span>
-        is the one still missing, and the merchant absorbs what falls through it.
+        Razorpay has launched Agentic Payments backed by UPI Reserve Pay, while Agent Studio
+        automates merchant operations. Parchi tests signed intent constraints immediately before
+        a payment order is created.
       </p>
     </div>
     <div class="ruled">
       <div>
-        <div class="big">2.4×</div>
-        <p>the ordinary card-not-present dispute rate, on agent-initiated transactions — with
-           no reason code and no evidence framework to defend it.</p>
+        <div class="big">₹17L</div>
+        <p>of labelled violations paid out by the allow-all baseline in this seeded synthetic
+           evaluation. The number is reproducible, not a market-wide claim.</p>
       </div>
       <div>
         <div class="big">8 <span style="font-size:26px; color:var(--ink-3)">rules +</span> 1</div>
-        <p>Eight deterministic checks catch nine violations in ten. One model call answers the
-           question rules cannot: does this cart match what the human asked for?</p>
+        <p>On the seeded 1,000-row evaluation, eight deterministic checks catch 235/260 violations.
+           One model call handles the semantic intent gap.</p>
       </div>
       <div>
         <div style="display:flex; gap:8px; flex-wrap:wrap">
@@ -423,13 +424,18 @@
           </div>
           <span class="stamp IDLE" id="verdict">READY</span>
         </div>
+        <div class="toolbar" id="authorizationActions" hidden>
+          <button class="btn primary" id="btnApprove" hidden>Approve step-up</button>
+          <button class="btn primary" id="btnPay" hidden>Pay with Razorpay test mode</button>
+          <span class="dim" id="authorizationStatus" aria-live="polite"></span>
+        </div>
         <div class="checks" id="checks"></div>
       </div>
 
       <div class="rail-right">
         <div class="sheet">
           <div class="panelhead">Evidence pack <span class="r">JSON</span></div>
-          <pre id="evidence">Runs appear here — the JSON a merchant sends to the issuer.</pre>
+          <pre id="evidence">Runs appear here — prototype evidence JSON for a dispute workflow.</pre>
         </div>
 
         <div class="sheet">
@@ -472,9 +478,8 @@
     <div class="note">
       <span class="flag">READ THIS</span>
       <p id="scoreNote">
-        The Parchi row is produced by the offline stand-in matcher unless an API key is set —
-        the repo runs end to end with no key, and that number is not an LLM number. Every table,
-        ledger record and evidence pack is stamped with the provider that produced it.
+        The Parchi row is produced by the offline stand-in matcher unless an API key is set.
+        Decisions that execute an intent check record the provider in evidence and ledger data.
       </p>
     </div>
   </div>
@@ -502,14 +507,14 @@
       <div class="sheet">
         <div class="num">03 — THE ONE CALL</div>
         <h3>Does the cart match the intent?</h3>
-        <p>Strict JSON, hard timeout, untrusted merchant text fenced as data. If it cannot
-           answer, the answer is never "allow a large purchase".</p>
+        <p>Strict typed JSON, provider timeout, untrusted merchant text fenced as data. If it
+           cannot answer, every purchase requires human confirmation.</p>
       </div>
       <div class="sheet">
         <div class="num">04 — THE RECEIPT</div>
         <h3>Hash-chained evidence</h3>
-        <p>Every check and its reason, the verdict, the signature, the slip — appended to a log
-           whose links anyone can verify above.</p>
+        <p>Checks, transaction summary, intent result and verdict enter a hash-linked log that
+           the server verifies. Separate evidence JSON carries the signed slip.</p>
       </div>
     </div>
   </div>
@@ -527,10 +532,10 @@
           a keypair at startup; a real payer key belongs in a secure element or wallet.</li>
       <li><b>Nonces are an in-process set.</b> Replay protection does not survive a restart, and
           would need a shared store to survive more than one instance.</li>
-      <li><b>No agent registry.</b> Parchi verifies that a human approved this purchase, not
-          which agent is presenting the slip — that half the card networks are already building.</li>
-      <li><b>No live UPI integration.</b> <span class="mono">docs/upi-mapping.md</span> maps every
-          mandate field onto UPI Reserve Pay on paper; wiring it needs a PSP sandbox.</li>
+      <li><b>No agent registry.</b> Parchi verifies a cart against a trusted payer key and signed
+          intent record, not which agent presents it.</li>
+      <li><b>Razorpay test mode is optional.</b> Add test credentials to create real Orders and
+          verify Checkout signatures. No live-mode key is accepted.</li>
       <li><b>Synthetic data.</b> 1,000 generated rows with known labels. Real agent traffic is
           messier, and the intent check is the part that would move first.</li>
       <li><b>Quantity inflation is unsolved.</b> Five identical allowed pairs, under the cap,
@@ -549,7 +554,15 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
-const api = (p, o) => fetch(p, o).then(r => r.json());
+const api = async (p, o) => {
+  const response = await fetch(p, o);
+  const body = await response.json();
+  if(!response.ok) throw new Error(body.detail || `HTTP ${response.status}`);
+  return body;
+};
+let currentAuthorization = null;
+let currentApprovalToken = null;
+let razorpayConfigured = false;
 
 // Everything below writes server data into the DOM. Cart lines and merchant notes
 // are attacker-controlled in the threat model this whole project is about, so no
@@ -561,6 +574,7 @@ async function loadScenarios(){
   const d = await api("/api/scenarios");
   $("#providerPill").textContent = `checkpoint live · intent provider: ${d.intent_provider}`;
   $("#footProvider").textContent = `step-up threshold ${d.step_up_threshold.display}`;
+  razorpayConfigured = d.razorpay_test_mode;
   $("#scenarios").innerHTML = d.scenarios.map(s => `
     <button class="sbtn" data-id="${esc(s.id)}" aria-pressed="false">
       <span class="row">
@@ -599,10 +613,21 @@ async function run(id, btn){
   document.querySelectorAll(".sbtn").forEach(b => b.setAttribute("aria-pressed", "false"));
   if(btn) btn.setAttribute("aria-pressed", "true");
   const t0 = performance.now();
-  const r = await api("/api/authorize", {
-    method:"POST", headers:{"content-type":"application/json"},
-    body: JSON.stringify({ scenario:id, kill_model: $("#killModel").checked })
-  });
+  const actions = $("#authorizationActions");
+  actions.hidden = true;
+  $("#authorizationStatus").textContent = "";
+  let r;
+  try {
+    r = await api("/api/authorize", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({ scenario:id, kill_model: $("#killModel").checked })
+    });
+  } catch(error) {
+    $("#reason").textContent = error.message;
+    $("#verdict").className = "stamp BLOCK";
+    $("#verdict").textContent = "ERROR";
+    return;
+  }
   const ms = Math.round(performance.now() - t0);
   const d = r.decision;
 
@@ -619,7 +644,112 @@ async function run(id, btn){
       <div class="v said">“${esc(r.mandate.prompt_playback)}”</div></div>`;
   $("#checks").innerHTML = d.checks.map(checkRow).join("") + intentRow(d.intent);
   $("#evidence").textContent = JSON.stringify(r.evidence, null, 2);
+  currentAuthorization = r.authorization_id;
+  currentApprovalToken = r.approval_token;
+  $("#btnApprove").hidden = r.state !== "PENDING";
+  $("#btnPay").hidden = !razorpayConfigured || r.state !== "ALLOW";
+  actions.hidden = $("#btnApprove").hidden && $("#btnPay").hidden;
   loadLedger();
+}
+
+async function approveStepUp(){
+  const button = $("#btnApprove");
+  button.disabled = true;
+  try {
+    const r = await api("/api/approve", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({
+        txn_id: currentAuthorization, approval_token: currentApprovalToken, approve: true
+      })
+    });
+    $("#verdict").className = "stamp ALLOW fade";
+    $("#verdict").textContent = "APPROVED";
+    $("#reason").textContent = r.decision.reason;
+    $("#checks").innerHTML = r.decision.checks.map(checkRow).join("") + intentRow(r.decision.intent);
+    $("#evidence").textContent = JSON.stringify(r.evidence, null, 2);
+    button.hidden = true;
+    $("#btnPay").hidden = !razorpayConfigured;
+    $("#authorizationActions").hidden = !razorpayConfigured;
+    loadLedger();
+  } catch(error) {
+    $("#authorizationStatus").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+function loadRazorpayCheckout(){
+  if(window.Razorpay) return Promise.resolve();
+  return new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://checkout.razorpay.com/v1/checkout.js";
+    script.onload = resolve;
+    script.onerror = () => reject(new Error("Razorpay Checkout could not load"));
+    document.head.appendChild(script);
+  });
+}
+
+async function startPayment(){
+  const button = $("#btnPay");
+  const authorizationId = currentAuthorization;
+  button.disabled = true;
+  try {
+    const created = await api("/api/razorpay/order", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({txn_id: authorizationId})
+    });
+    await loadRazorpayCheckout();
+    const checkout = new Razorpay({
+      key: created.key,
+      order_id: created.order.id,
+      amount: created.order.amount,
+      currency: created.order.currency,
+      name: "Parchi test checkout",
+      handler: async result => {
+        try {
+          const verified = await api("/api/razorpay/verify", {
+            method:"POST", headers:{"content-type":"application/json"},
+            body: JSON.stringify({
+              txn_id: authorizationId,
+              razorpay_order_id: result.razorpay_order_id,
+              razorpay_payment_id: result.razorpay_payment_id,
+              razorpay_signature: result.razorpay_signature
+            })
+          });
+          $("#authorizationStatus").textContent = `Checkout verified · ${verified.payment_id} · awaiting webhook`;
+          button.hidden = true;
+          pollWebhook(authorizationId);
+        } catch(error) {
+          $("#authorizationStatus").textContent = error.message;
+        }
+      }
+    });
+    checkout.open();
+  } catch(error) {
+    $("#authorizationStatus").textContent = error.message;
+  } finally {
+    button.disabled = false;
+  }
+}
+
+// The checkout callback proves the widget finished; the webhook is the
+// authoritative word on how the payment ended. Poll until the state moves.
+function pollWebhook(authorizationId){
+  const started = Date.now();
+  const timer = setInterval(async () => {
+    try {
+      const d = await api(`/api/authorizations/${authorizationId}`);
+      if(["CAPTURED","FAILED","REFUNDED"].includes(d.state)){
+        clearInterval(timer);
+        $("#authorizationStatus").textContent =
+          `${d.state} via webhook · ${d.razorpay.payment_id || ""}`;
+        loadLedger();
+      } else if(Date.now() - started > 180000){
+        clearInterval(timer);
+        $("#authorizationStatus").textContent += " · no webhook within 3 min (is RAZORPAY_WEBHOOK_SECRET set, and the webhook pointed here?)";
+      }
+    } catch { /* refetch on the next tick */ }
+  }, 3000);
 }
 
 async function loadLedger(){
@@ -654,9 +784,9 @@ async function loadResults(){
     <div><div class="k">Sent to a human</div>
       <div class="v">${p.step_up_caught}<span>/${p.step_up_total}</span></div>
       <div class="s">step-up, not auto-approved</div></div>
-    <div><div class="k">Attack patterns handled</div>
-      <div class="v">28<span>/28</span></div>
-      <div class="s">six found real bypasses</div></div>`;
+    <div><div class="k">Attack cases exercised</div>
+      <div class="v">27<span> + 1</span></div>
+      <div class="s">defended + documented blind spot</div></div>`;
 
   // One measure, one hue: total cost of the mistakes. The split lives in the sub-label.
   const labels = {
@@ -689,7 +819,7 @@ async function loadResults(){
 
   $("#scoreNote").textContent =
     `${d.dataset.rows} rows · seed ${d.dataset.seed} · intent provider "${d.intent_provider}". ` +
-    (d.intent_provider === "api"
+    (["api", "openai"].includes(d.intent_provider)
       ? "This run used the model."
       : "The Parchi row was produced by the offline stand-in matcher, not by a model — " +
         "the repo runs end to end with no API key, and that number is not an LLM number.") +
@@ -697,6 +827,8 @@ async function loadResults(){
 }
 
 $("#btnVerify").addEventListener("click", loadLedger);
+$("#btnApprove").addEventListener("click", approveStepUp);
+$("#btnPay").addEventListener("click", startPayment);
 $("#btnTamper").addEventListener("click", async () => {
   const r = await fetch("/api/tamper", {method:"POST"});
   if(!r.ok){

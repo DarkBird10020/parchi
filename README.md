@@ -8,8 +8,8 @@
 
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
-[![Attack patterns](https://img.shields.io/badge/attack%20patterns-28%2F28%20handled-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-19%20passing-success)](tests/)
+[![Attack patterns](https://img.shields.io/badge/attack%20cases-27%20defended%20%2B%201%20known-yellow)](tests/test_attacks.py)
+[![Tests](https://img.shields.io/badge/tests-48%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -23,15 +23,12 @@
 In India, a **parchi** is a slip of paper that says you're allowed. Show the parchi,
 you get through. Right now, when an AI spends your money, there is no parchi.
 
-Razorpay shipped agents that spend money — agentic in-app checkout, UPI Reserve Pay,
-Agent Studio. What nobody shipped is the layer that checks whether the spending was
-*allowed*. Card networks verify that an agent is **genuine**; none of them verify
-that a human approved **this specific purchase**. Agent-initiated transactions
-already dispute at roughly 2.4× the rate of ordinary card-not-present ones, and the
-merchant absorbs that first — with no reason code and no evidence to defend it.
+Razorpay has launched Agentic Payments backed by UPI Reserve Pay, while Agent Studio
+automates merchant operations. Agentic payment systems still need transaction-level
+enforcement that checks whether the actual cart remains inside signed payer intent.
 
 **Parchi is that missing check.** Every agent purchase must carry a signed
-[AP2 Intent Mandate](https://github.com/google-agentic-commerce/AP2): the human's
+[AP2-inspired intent record](https://github.com/google-agentic-commerce/AP2): the human's
 cap, categories, expiry, and the agent's own playback of what it understood the
 human to ask for. Parchi verifies the purchase against that mandate *before*
 authorisation and writes a hash-chained evidence record either way — so a merchant
@@ -107,13 +104,13 @@ over a 1,000-row batch is the realistic way a subscription gets burned.
 
 ```mermaid
 flowchart TD
-    H["Human approves in app<br/><i>signs an AP2 Intent Mandate</i>"] -->|"cap · categories · methods<br/>TTL · nonce · prompt_playback"| A
+    H["Human approves in app<br/><i>signs an intent record</i>"] -->|"cap · categories · methods<br/>TTL · nonce · prompt_playback"| A
     A["Agent shops<br/><i>builds a cart, no human present</i>"] -->|"cart + signed mandate"| R
 
     subgraph P["PARCHI — the checkpoint"]
         direction TB
         R["<b>8 deterministic checks</b><br/>signature → expiry → payee → method →<br/>line items → category → cap → replay<br/><i>short-circuits on first failure · no AI in that file</i>"]
-        R -->|all pass| M["<b>1 model call</b><br/>does this cart match what the human asked for?<br/><i>strict JSON · hard timeout · untrusted text fenced as data</i>"]
+        R -->|all pass| M["<b>1 model call</b><br/>does this cart match what the human asked for?<br/><i>strict typed JSON · provider timeout · untrusted text fenced as data</i>"]
     end
 
     R -->|any rule fails| BLOCK["BLOCK"]
@@ -159,17 +156,41 @@ product page that adds a line item **inside an allowed category and under the ca
 No rule can see it. That is the entire reason the model call exists.
 
 > [!IMPORTANT]
-> **Read this before quoting the Parchi row.** It was produced by the offline
-> `heuristic` intent matcher, not by a model — this repo runs end to end with no API
-> key, and that number is not an LLM number. Every table, ledger record and evidence
-> pack is stamped with the provider that produced it — `heuristic`,
-> `api:claude-opus-5`, or `openai:<model>`.
->
-> A **25-row sample** against `z-ai/glm-4.7-flash` does return recall 100%,
-> precision 100%, 0 degraded — but 25 rows is 4 violations, which cannot tell 100%
-> apart from 96%. The full 1,000-row model run has not been done. See
-> [FAILURES.md](FAILURES.md) → entry 10 for the three bugs that first sample
-> uncovered, and *Still unsolved* for what remains unmeasured.
+> **The table above is the offline `heuristic` matcher's.** This repo runs end to
+> end with no API key, and that is the number a no-key reproduction gets — so it
+> stays as the reproducible baseline. The **full 1,000-row run against a real
+> model** has also been done, and it is published below, degraded rows and all,
+> because a risk product that only quotes its best run is doing the thing it
+> exists to prevent.
+
+### The full model run
+
+Same 1,000 rows, one call per cart against `z-ai/glm-4.7-flash`
+([`eval/results_model_full.json`](eval/results_model_full.json), ledger in
+[`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)):
+
+| Approach | Catches violations | Blocks good customers | Degraded | Cost of the mistakes |
+| :--- | :--- | :--- | :--- | :--- |
+| Rules only | 235/260 (90.4%) | 0 | — | ₹1,20,785 paid out on violations |
+| **Parchi** *(rules + one model call)* | **255/260 (98.1%)** | 2 | 114 | ₹26,963 on missed violations + **₹34,404** of false blocks |
+
+What the 40-row samples that came before could not show:
+
+- **The endpoint throttled under sustained load.** 114 of 1,000 calls degraded —
+  a trickle early, a wall late. Every degraded cart became `STEP_UP`, never
+  `ALLOW`: nothing was silently auto-approved, but ~100 legitimate customers
+  would have been asked "are you sure?" for no reason. **Fail-safe is not
+  fail-free**, and at 11% of traffic that friction is a product decision, not
+  a rounding error.
+- **The model made three real mistakes**: two false blocks (₹34,404, one a
+  legitimate ₹30,102 high-value cart) and one in-category injection it called
+  in-scope — `second pair, same shoe`, a quantity-inflation variant, the
+  recorded blind spot arriving through the intent check's front door.
+- Four more violations landed on `STEP_UP` via degradation instead of `BLOCK` —
+  the safe direction, but misses on the scoreboard.
+
+39/40 high-value legit carts still reached a human; the chain verifies across
+all 1,000 records. The post-mortem is [FAILURES.md](FAILURES.md) → entry 11.
 
 ### When the model dies
 
@@ -177,9 +198,8 @@ No rule can see it. That is the entire reason the model call exists.
 python eval/evaluate.py --provider off
 ```
 
-Parchi degrades to exactly the rules-only number (235/260, ₹0 of false-positive
-cost), keeps logging every decision, and auto-approves nothing: a high-value cart
-whose intent check could not run becomes `STEP_UP` — not `ALLOW`, and not `BLOCK`.
+Parchi keeps logging every decision and auto-approves nothing when intent is unknown:
+any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLOCK`.
 **Failing closed should not mean burning the customer.**
 
 ---
@@ -194,6 +214,28 @@ Eight scenarios, each a real `POST /api/authorize`. Every check and its reason i
 shown, the evidence pack is the JSON a merchant would send to an issuer, and the
 ledger pane verifies its own hash chain — with a **Tamper** button, because showing
 it beats claiming it.
+
+`POST /api/authorizations` also accepts a caller-supplied signed mandate and cart,
+while resolving the payer key from server trust state. `STEP_UP` decisions can be
+approved once in the UI. With Razorpay test credentials, an allowed decision creates
+a real Order and verifies the Checkout signature:
+
+```bash
+RAZORPAY_KEY_ID=rzp_test_... RAZORPAY_KEY_SECRET=... python demo/server.py
+```
+
+Live-mode Razorpay keys are rejected by design.
+
+The loop closes on the webhook, not on the checkout callback: a checkout success
+only proves the widget finished, while `POST /api/razorpay/webhook` is the
+authoritative word on how the payment ended. The `X-Razorpay-Signature` HMAC is
+verified over the exact raw body, and `payment.captured`, `payment.failed` and
+`refund.processed` each write the outcome into the hash-chained ledger — so a
+payment that fails after an ALLOW cannot still look paid:
+
+```bash
+RAZORPAY_WEBHOOK_SECRET=... python demo/server.py   # point the webhook at /api/razorpay/webhook
+```
 
 <img src="docs/images/checkpoint.jpg" alt="The checkpoint running: an injected add-on passes every rule and is caught by the intent check" width="100%">
 
@@ -217,6 +259,7 @@ verdict Parchi must return, and prints a report.
 | String tricks | method / category case variance · whitespace padding · **Cyrillic homoglyph category** |
 | Replay | same slip new cart · nonce collision · a blocked cart must not burn the slip |
 | Prompt injection | in the product page · in a line description · **while the model is dead** |
+| Webhooks | forged `X-Razorpay-Signature` · re-serialised body · unknown order · unconfigured secret |
 
 **Six of these got through on the first run**, including payee substitution (a valid
 slip for one shop authorised a purchase at *any* other) and a zero-value cart. Two
@@ -253,8 +296,8 @@ things.
 
 ## The slip
 
-The mandate is Google's **AP2 Intent Mandate**, not an invented format — it already
-defines this object for the case where a human is not present at purchase time.
+The mandate is **AP2-inspired**: it applies signed intent constraints when a human is
+not present at purchase time. This prototype does not claim AP2 wire-format conformance.
 
 | Field | Holds |
 | :--- | :--- |
@@ -263,7 +306,7 @@ defines this object for the case where a human is not present at purchase time.
 | `max_amount_paise` | The spending cap. Paise, never floats — **money is integers** |
 | `allowed_categories` | What kind of thing may be bought |
 | `prompt_playback` | The agent's own words for what the human asked. This is the field the AI check compares against |
-| `expires_at` | TTL. AP2 guidance suggests around 24 hours |
+| `expires_at` | Demo TTL: 24 hours |
 | `nonce` | One-time use, so a mandate cannot be replayed |
 | `signature` | Ed25519 over canonical JSON, signed by the human's key |
 
@@ -281,7 +324,7 @@ Small enough that a reviewer can read the whole thing in ten minutes. That is a 
 ```
 parchi/
 ├── parchi/
-│   ├── mandate.py       # AP2 Intent Mandate: dataclass, canonical bytes, sign, verify
+│   ├── mandate.py       # signed intent record: canonical bytes, sign, verify
 │   ├── checks.py        # the 8 deterministic checks. no AI in this file
 │   ├── intent_match.py  # the ONE model call: timeout, fallback, injection fencing
 │   ├── ledger.py        # hash-chained audit log + verify_chain()
@@ -290,18 +333,20 @@ parchi/
 ├── data/generate.py     # 1,000 labelled agent purchases, deterministic
 ├── eval/evaluate.py     # precision, recall, false-positive rupee cost, baselines
 ├── tests/
-│   ├── test_parchi.py   # 18 unit tests, including one that tampers with the ledger
+│   ├── test_parchi.py   # core tests, including one that tampers with the ledger
 │   └── test_attacks.py  # 28 adversarial patterns with the verdict each must get
 ├── demo/                # fastapi server + the page in the video
 ├── docs/upi-mapping.md  # mandate fields mapped onto UPI Reserve Pay
 └── FAILURES.md          # what broke, what it actually was, what it cost
 ```
 
-### Why anyone should believe the log
+### What the log proves
 
 Every ledger record hashes the one before it. `verify_chain()` walks the file, and
 `test_tampering_with_an_old_record_breaks_the_chain` edits one old record and proves
 the chain reports it. The demo page has a **Tamper** button for the same reason.
+This proves local chain consistency; preventing full-file replacement or truncation
+requires an external signed anchor.
 
 ---
 
@@ -315,11 +360,11 @@ Pretending a hackathon build is production-grade is the actual red flag.
   element or wallet.
 - **Nonces are an in-process set.** Replay protection does not survive a restart and
   would need a shared store to survive more than one instance.
-- **No agent registry.** Parchi verifies that a human approved this purchase. It does
-  not verify *which* agent is presenting the slip — that is the half the card
-  networks are already building, and the two are complementary.
-- **No real card-network or UPI integration.** The field mapping is on paper; wiring
-  it needs a PSP sandbox and a key-provisioning story.
+- **No agent registry.** Parchi verifies a cart against a trusted payer key and signed
+  intent record. It does not verify which agent presents it.
+- **Razorpay integration is test-mode only.** Orders and Checkout signature
+  verification work with supplied test credentials. UPI Reserve Pay provisioning
+  remains outside this repository.
 - **Synthetic data.** 1,000 generated rows with known labels. Real agent traffic is
   messier, and the intent check is the part that would move first.
 - **No multi-agent consensus** on high-value approvals. The step-up path hands those
@@ -331,6 +376,7 @@ Pretending a hackathon build is production-grade is the actual red flag.
 
 <div align="center">
 
+**[SUBMISSION.md](docs/submission.md)** — the five-minute reviewer's tour<br>
 **[FAILURES.md](FAILURES.md)** — every bug, what I first assumed, and what it actually was<br>
 **[docs/upi-mapping.md](docs/upi-mapping.md)** — the mandate on Indian rails
 

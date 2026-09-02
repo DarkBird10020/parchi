@@ -1,8 +1,7 @@
 """Dispute evidence pack builder.
 
-One JSON object a merchant can hand to an issuer: the slip, the signature that
-proves the human approved it, every check with its reason, the verdict, and the
-ledger hash that ties the record to the chain.
+Prototype evidence JSON carrying the signed slip, every check with its reason,
+the verdict, and the ledger hash that ties the record to the local chain.
 """
 
 from __future__ import annotations

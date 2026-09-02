@@ -113,11 +113,6 @@ class Engine:
                     checks, intent, intent.degraded if intent else False, txn_id=txn_id,
                 )
 
-            # A nonce is spent the moment the slip clears the rules, whatever
-            # the final verdict. Otherwise a blocked cart leaves a live mandate
-            # behind for a second attempt.
-            self.nonces.spend(mandate.nonce)
-
         # Write to the ledger regardless of verdict. A log that only records
         # refusals proves nothing about the approvals.
         if self.ledger is not None:

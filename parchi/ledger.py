@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from collections.abc import Iterator
 from typing import Any
@@ -27,6 +28,7 @@ def _record_hash(rec: dict[str, Any]) -> str:
 class Ledger:
     def __init__(self, path: str = "ledger.jsonl") -> None:
         self.path = path
+        self._lock = threading.Lock()
         self.prev = self._last_hash()
 
     def _last_hash(self) -> str:
@@ -48,6 +50,18 @@ class Ledger:
         verdict: str,
         degraded: bool = False,
         intent: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        with self._lock:
+            return self._append(mandate_id, txn, checks, verdict, degraded, intent)
+
+    def _append(
+        self,
+        mandate_id: str,
+        txn: dict[str, Any],
+        checks: list[dict[str, Any]],
+        verdict: str,
+        degraded: bool,
+        intent: dict[str, Any] | None,
     ) -> dict[str, Any]:
         # If the file went away under us (rotated, deleted, wiped by a demo
         # reset), the in-memory `prev` now points at a hash no reader can find.

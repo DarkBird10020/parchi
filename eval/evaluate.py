@@ -85,12 +85,21 @@ def score(rows: list[dict], predictions: list[str]) -> dict:
 def run_engine(rows: list[dict], pub: Ed25519PublicKey, use_intent: bool,
                provider: str, ledger_path: str | None,
                model: str | None = None,
-               timeout: float = 4.0) -> tuple[list[str], dict]:
+               timeout: float = 4.0,
+               warmup_rows: list[dict] | None = None) -> tuple[list[str], dict]:
     if ledger_path and os.path.exists(ledger_path):
         os.remove(ledger_path)
+    nonces = NonceStore()
+    if warmup_rows:
+        warmup_engine = Engine(nonces=nonces, provider="off", use_intent=False)
+        for row in warmup_rows:
+            warmup_engine.authorize(
+                IntentMandate.from_dict(row["mandate"]), row["signature"], pub,
+                Cart.from_dict(row["cart"]), now=row["now"], txn_id=row["txn_id"],
+            )
     engine = Engine(
         ledger=Ledger(ledger_path) if ledger_path else None,
-        nonces=NonceStore(),
+        nonces=nonces,
         provider=provider,
         use_intent=use_intent,
         model=model,
@@ -189,12 +198,21 @@ def main() -> None:
     ap.add_argument("--limit", type=int, default=0,
                     help="score only the first N rows - use this to measure the "
                          "cost of a real-model run before paying for 1,000 of them")
+    ap.add_argument("--per-case", type=int, default=0,
+                    help="score the first N rows of every case type")
     ap.add_argument("--out", default=os.path.join(HERE, "results.json"))
     ap.add_argument("--gate", action="store_true",
                     help="exit non-zero if the results regress (used by CI)")
     args = ap.parse_args()
 
     rows = load_rows(args.data)
+    all_rows = rows
+    warmup_rows: list[dict] = []
+    sample_label = "full"
+    all_rows = rows
+    sampled = False
+    if args.limit and args.per_case:
+        ap.error("use either --limit or --per-case, not both")
     if args.limit:
         # A subsample is not the published scoreboard: the case mix is only
         # correct over the whole batch, so a truncated run must never overwrite
@@ -203,6 +221,32 @@ def main() -> None:
         if args.gate:
             ap.error("--gate scores the full batch; drop --limit")
         args.out = os.path.join(HERE, f"results_sample_{args.limit}.json")
+        sampled = True
+        sample_label = f"first_{args.limit}"
+    elif args.per_case:
+        selected: list[dict] = []
+        counts: dict[str, int] = {}
+        for row in rows:
+            case = row["case"]
+            if counts.get(case, 0) < args.per_case:
+                selected.append(row)
+                counts[case] = counts.get(case, 0) + 1
+        # Replay rows depend on an earlier use of the same nonce. Include that
+        # prerequisite or a stratified sample would turn replay attacks into
+        # first uses and report a false miss.
+        replay_nonces = {
+            row["mandate"]["nonce"] for row in selected if row["case"] == "replay"
+        }
+        warmup_rows = [
+            row for row in all_rows
+            if row["mandate"]["nonce"] in replay_nonces and row["case"] != "replay"
+        ]
+        rows = selected
+        if args.gate:
+            ap.error("--gate scores the full batch; drop --per-case")
+        args.out = os.path.join(HERE, f"results_model_stratified_{args.per_case}.json")
+        sampled = True
+        sample_label = f"stratified_{args.per_case}"
     with open(META, encoding="utf-8") as f:
         meta = json.load(f)
     pub = Ed25519PublicKey.from_public_bytes(bytes.fromhex(meta["payer_public_key"]))
@@ -215,7 +259,9 @@ def main() -> None:
     approaches["block_all_agent_traffic"] = {
         "metrics": score(rows, [BLOCK] * len(rows)), "run": {}}
 
-    preds_rules, run_rules = run_engine(rows, pub, False, provider, None, args.model)
+    preds_rules, run_rules = run_engine(
+        rows, pub, False, provider, None, args.model, warmup_rows=warmup_rows
+    )
     approaches["rules_only"] = {
         "metrics": score(rows, preds_rules), "run": run_rules,
         "per_case": per_case(rows, preds_rules)}
@@ -226,16 +272,22 @@ def main() -> None:
     if provider not in ("heuristic", "off"):
         _guard_degraded_run(rows, pub, provider, args.model)
 
-    ledger_path = os.path.join(HERE, "ledger.jsonl")
+    ledger_name = "ledger.jsonl" if not sampled else f"ledger_{sample_label}_{provider}.jsonl"
+    ledger_path = os.path.join(HERE, ledger_name)
     preds_parchi, run_parchi = run_engine(rows, pub, True, provider, ledger_path,
-                                          args.model, args.timeout)
+                                          args.model, args.timeout, warmup_rows)
     chain_ok, chain_msg, chain_n = verify_chain(ledger_path)
     approaches["parchi"] = {
         "metrics": score(rows, preds_parchi), "run": run_parchi,
         "per_case": per_case(rows, preds_parchi)}
 
     results = {
-        "dataset": {"rows": len(rows), "seed": meta["seed"], "cases": meta["cases"]},
+        "dataset": {
+            "rows": len(rows),
+            "seed": meta["seed"],
+            "cases": {case: sum(row["case"] == case for row in rows)
+                      for case in dict.fromkeys(row["case"] for row in rows)},
+        },
         "intent_provider": provider,
         "approaches": approaches,
         "ledger": {"path": os.path.relpath(ledger_path, ROOT),
@@ -246,9 +298,10 @@ def main() -> None:
         json.dump(results, f, indent=2)
 
     table = markdown(results)
-    with open(os.path.join(HERE, "results.md"), "w", encoding="utf-8") as f:
-        f.write(f"# Results ({len(rows)} synthetic agent transactions)\n\n"
-                f"Intent provider: `{provider}`\n\n{table}\n")
+    if not sampled:
+        with open(os.path.join(HERE, "results.md"), "w", encoding="utf-8") as f:
+            f.write(f"# Results ({len(rows)} synthetic agent transactions)\n\n"
+                    f"Intent provider: `{provider}`\n\n{table}\n")
 
     print(f"\n{len(rows)} rows · intent provider: {provider}\n")
     print(table)

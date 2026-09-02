@@ -1,6 +1,6 @@
 """The only place a model is allowed.
 
-One call, strict JSON out, hard timeout, deterministic fallback. Everything
+One call, strict JSON out, provider timeout, deterministic fallback. Everything
 else in Parchi is plain code, because rules are faster, cheaper and auditable.
 The model answers exactly one question rules cannot: does this cart match what
 the human actually asked for?
@@ -25,7 +25,6 @@ off       Never call anything; always take the degraded path. This is the
 
 from __future__ import annotations
 
-import concurrent.futures
 import json
 import os
 import re
@@ -33,7 +32,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from . import openai_provider
-from .mandate import STEP_UP_PAISE, Cart, IntentMandate, rupees
+from .mandate import Cart, IntentMandate, rupees
 
 MODEL = "claude-opus-5"
 
@@ -154,7 +153,7 @@ def _build_prompt(m: IntentMandate, cart: Cart) -> str:
 # --------------------------------------------------------------------------
 
 def _call_claude(prompt: str, timeout: float) -> dict[str, Any]:
-    """One Messages API call. Strict JSON out, hard timeout, no retries.
+    """One Messages API call. Strict JSON out, provider timeout, no retries.
 
     max_retries=0 on purpose: this call sits in front of a payment, so a slow
     answer is a wrong answer. The caller has a deterministic fallback.
@@ -250,26 +249,22 @@ def intent_matches(
             else:
                 label = f"api:{MODEL}"
                 work = lambda: _call_claude(prompt, timeout)  # noqa: E731
-            # Hard wall-clock timeout: the SDK timeout covers the socket, this
-            # covers everything else (DNS, retries inside a dependency, a hung
-            # TLS handshake).
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                d = pool.submit(work).result(timeout=timeout + 1.0)
-        return IntentVerdict(bool(d["match"]), str(d["reason"]), False, label)
+            d = work()
+        if type(d.get("match")) is not bool:
+            raise IntentUnavailable("intent check returned a non-boolean match")
+        if not isinstance(d.get("reason"), str) or not d["reason"].strip():
+            raise IntentUnavailable("intent check returned an invalid reason")
+        return IntentVerdict(d["match"], d["reason"][:400], False, label)
     except Exception as exc:
         # DEGRADED PATH - this is the failure you demo.
-        # Fail closed on expensive, open on cheap. Never crash,
-        # never silently allow a large purchase.
-        expensive = cart.total_paise > STEP_UP_PAISE
         detail = str(exc) if isinstance(exc, IntentUnavailable) else type(exc).__name__
         if provider == "openai":
             # An HTTP status or a model name is genuinely useful when a batch
             # degrades; the key never is. redact() runs over it either way.
             detail = openai_provider.redact(f"{type(exc).__name__}: {exc}")[:120]
         return IntentVerdict(
-            match=not expensive,
-            reason=f"intent check unavailable ({detail}) - "
-            + ("failing closed on a high-value cart" if expensive else "allowing a low-value cart on rules alone"),
+            match=False,
+            reason=f"intent check unavailable ({detail}) - human confirmation required",
             degraded=True,
             provider=label,
         )

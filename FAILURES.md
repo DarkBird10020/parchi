@@ -97,13 +97,13 @@ nothing at all. Refusing a purchase on the strength of "I could not check" throw
 away a customer to avoid a risk that was never established. "Never auto-approve" is
 the property that matters; "refuse" is a different and more expensive property.
 
-**Changed.** A degraded intent check on an expensive cart now returns `STEP_UP`,
-not `BLOCK` — the human decides. A degraded check on a cheap cart still allows on
-rules alone. (`parchi/engine.py`, and two tests that pin both halves.)
+**Changed.** A degraded intent check now returns `STEP_UP` at every amount — the
+human decides. Semantic uncertainty can no longer reopen a low-value injection.
+(`parchi/engine.py`, with tests pinning the fail-safe path.)
 
 **Cost.** ~20 minutes, and it turned the worst number in the project into the best
-demo beat: kill the model and Parchi degrades exactly to the rules-only baseline,
-with zero rupees of false-positive cost and nothing auto-approved.
+demo beat: kill the model and every rules-valid cart asks the human, with nothing
+silently auto-approved.
 
 ---
 
@@ -297,26 +297,54 @@ asked for.
 
 ---
 
-### Still unsolved
+### 11. The full 1,000-row model run: what a 40-row sample could not show
 
-**The headline number in the scoreboard is not a model number.**
+**Broke.** Nothing crashed, which is the point. The sample runs (25–40 rows)
+came back 100% recall, 100% precision, 0 degraded — and the full run does not.
 
-With no `ANTHROPIC_API_KEY` the intent check falls back to an offline lexical
-matcher, and the batch it is scored on has product descriptions generated from the
-same templates as the mandate playback. So the matcher sees the human's own words
-echoed back at it and scores 100% — which says almost nothing about how a real
-model behaves on real merchant titles like *"ASICS GEL-Venture 9 (2E Wide) Men's
-Trail Runner — Piedmont Grey"*, where the human said "trail sneakers" and no word
-overlaps at all.
+**Assumed.** Implicitly, that a clean sample scales to a clean batch. It does
+not, in two separate ways.
 
-**Partly measured now.** A 25-row sample against `z-ai/glm-4.7-flash` returns
-recall 100%, precision 100%, 0 degraded — after entry 10 above. But 25 rows is 4
-violations; it cannot distinguish 100% from 96%, and the sample is the head of the
-file rather than a stratified draw. **The full 1,000-row model run has not been
-done**, and until it has, the headline table in the README is the heuristic's and
-is labelled as such.
+**Actually.**
 
-Everything the repo prints carries the provider that produced it — `heuristic`,
-`api:claude-opus-5`, `openai:z-ai/glm-4.7-flash` — so no number here claims to be a
-model result that is not one. Running the full batch and publishing *that* table,
-next to the heuristic one, is the next thing this project needs.
+1. **The endpoint throttled under sustained load.** 114 of 1,000 calls took
+   the degraded path — a trickle through the first half, a wall towards the
+   end. The stratified-40 sample never ran long enough to hit it. Every
+   degraded cart became `STEP_UP` by design (entry 4), so nothing was silently
+   auto-approved — but roughly a hundred legitimate customers would have been
+   asked "are you sure?" for no reason. Fail-safe is not fail-free: degradation
+   converts risk into friction, and at 11% of traffic that friction is a
+   product decision, not a rounding error.
+2. **The model made three real mistakes.** Two false blocks (Rs 34,404,
+   including one Rs 30,102 legitimate high-value cart) and one in-category
+   injection it called in-scope (Rs 5,000 — `second pair, same shoe`, a
+   quantity-inflation variant, the recorded blind spot arriving through the
+   intent check's front door). Four more violations landed on `STEP_UP` via
+   degradation instead of `BLOCK` — the safe direction, but misses on the
+   scoreboard.
+
+Final: **recall 98.1%** (255/260), **precision 99.2%**, false-positive cost
+**Rs 34,404** vs the heuristic's Rs 0, ledger chain intact across all 1,000
+records, 39/40 high-value legit carts still reached a human.
+
+**Changed.** Nothing in the code — the failure-safe held, which is the
+validation. Changed the claims instead: the README now publishes the model
+table next to the heuristic one, degraded rows and all, because a risk product
+that only quotes its best run is doing the thing it exists to prevent.
+
+**Cost.** ~7 hours of wall-clock run time and one subscription's worth of
+calls. The lessons: a sample measures correctness, only a full batch measures
+*load*; and "degraded" is a verdict you must budget for (retry queues,
+fallback providers, or accepting the friction) rather than a state you
+pretend is rare.
+
+---
+
+### Resolved (was "Still unsolved")
+
+The headline number is now a model number. The full 1,000-row run against
+`z-ai/glm-4.7-flash` is published in the README's results table and in
+[`eval/results_model_full.json`](eval/results_model_full.json), next to the
+heuristic table it replaced as the claim of record. The heuristic row stays —
+it is the number a no-key reproduction gets, and the gap between the two rows
+is now itself a documented finding rather than a caveat.

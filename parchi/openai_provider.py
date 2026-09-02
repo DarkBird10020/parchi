@@ -291,8 +291,12 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
 
     content = payload["choices"][0]["message"]["content"]
     parsed = json.loads(_strip_fence(content))
-    if "match" not in parsed or "reason" not in parsed:
-        raise RuntimeError("model returned JSON without match/reason")
+    if not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}:
+        raise RuntimeError("model returned JSON outside the match/reason schema")
+    if type(parsed["match"]) is not bool:
+        raise RuntimeError("model returned a non-boolean match")
+    if not isinstance(parsed["reason"], str) or not parsed["reason"].strip():
+        raise RuntimeError("model returned an invalid reason")
     return parsed
 
 

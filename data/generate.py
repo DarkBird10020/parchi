@@ -28,6 +28,7 @@ from parchi.mandate import (
     IntentMandate,
     new_mandate,
     sign,
+    sign_cart,
 )
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -94,13 +95,14 @@ MERCHANTS = ["mrc_bluleaf", "mrc_kirana_now", "mrc_techbazaar", "mrc_paperback",
 
 # case -> (share, correct verdict)
 CASES = {
-    "in_scope": (0.70, "ALLOW"),
+    "in_scope": (0.68, "ALLOW"),
     "over_cap": (0.08, "BLOCK"),
     "wrong_category": (0.06, "BLOCK"),
     "expired": (0.04, "BLOCK"),
     "replay": (0.03, "BLOCK"),
     "injection_cross_category": (0.025, "BLOCK"),
     "injection_in_category": (0.025, "BLOCK"),
+    "quantity_inflation": (0.02, "BLOCK"),
     "high_value_legit": (0.04, "STEP_UP"),
 }
 
@@ -112,7 +114,7 @@ def _counts(n: int) -> dict[str, int]:
     return counts
 
 
-def _mandate_for(rng: random.Random, category: str, cap_paise: int, issued_at: int, ttl: int):
+def _mandate_for(rng: random.Random, category: str, cap_paise: int, issued_at: int, ttl: int, agent_id: str):
     item, playback_tpl = rng.choice(CATALOGUE[category])
     playback = playback_tpl.format(cap=f"{cap_paise // 100:,}")
     methods = rng.choice([("upi",), ("upi", "card"), ("card",)])
@@ -125,8 +127,9 @@ def _mandate_for(rng: random.Random, category: str, cap_paise: int, issued_at: i
         prompt_playback=playback,
         issued_at=issued_at,
         ttl_seconds=ttl,
+        allowed_agent_id=agent_id,
         # Seeded, so the same seed produces byte-identical rows. new_mandate
-        # otherwise mints these from uuid4, which ignores this generator's seed
+        # otherwise mints these from uuid4, which ignores the generator's seed
         # and makes every run of the batch a different file.
         mandate_id="mnd_" + uuid.UUID(int=rng.getrandbits(128)).hex[:16],
         nonce="nc_" + uuid.UUID(int=rng.getrandbits(128)).hex,
@@ -134,21 +137,48 @@ def _mandate_for(rng: random.Random, category: str, cap_paise: int, issued_at: i
     return m, item
 
 
-def _cart(m: IntentMandate, rng: random.Random, lines, note: str = "") -> Cart:
+
+def _cart(m: IntentMandate, rng: random.Random, lines, note: str = "",
+          agent_id: str = "", agent_signature: str = "") -> Cart:
     return Cart(
         lines=tuple(lines),
         method=rng.choice(m.allowed_methods),
         payee_id=m.payee_id,
         merchant_note=note,
+        agent_id=agent_id,
+        agent_signature=agent_signature,
     )
 
 
-def build(n: int, seed: int) -> tuple[list[dict], str]:
+def _signed_cart(m: IntentMandate, rng: random.Random, lines, key, note: str = "",
+                 agent_id: str = "") -> Cart:
+    unsigned = _cart(m, rng, lines, note=note, agent_id=agent_id)
+    return Cart(
+        lines=unsigned.lines,
+        method=unsigned.method,
+        payee_id=unsigned.payee_id,
+        merchant_note=unsigned.merchant_note,
+        agent_id=agent_id,
+        agent_signature=sign_cart(unsigned, key),
+    )
+
+
+def build(n: int, seed: int) -> tuple[list[dict], str, str]:
     rng = random.Random(seed)
     key = Ed25519PrivateKey.from_private_bytes(
         bytes(rng.getrandbits(8) for _ in range(32))
     )
     pub_hex = key.public_key().public_bytes_raw().hex()
+
+    # One honest agent key for this batch. A second key is available for
+    # agent-substitution attacks.
+    agent_key = Ed25519PrivateKey.from_private_bytes(
+        bytes(rng.getrandbits(8) for _ in range(32))
+    )
+    agent_id = "agt_shoprunner_01"
+    agent_pub_hex = agent_key.public_key().public_bytes_raw().hex()
+
+
     counts = _counts(n)
     rows: list[dict] = []
 
@@ -177,16 +207,16 @@ def build(n: int, seed: int) -> tuple[list[dict], str]:
             # ambiguously both.
             cap = rng.choice([300_000, 500_000, 800_000, 1_000_000])
             issued = NOW - rng.randint(600, 20 * 3600)
-            m, item = _mandate_for(rng, category, cap, issued, MANDATE_TTL_SECONDS)
+            m, item = _mandate_for(rng, category, cap, issued, MANDATE_TTL_SECONDS, agent_id)
             base = int(cap * rng.uniform(0.35, 0.85))
 
             if case == "in_scope":
-                cart = _cart(m, rng, [CartLine(item, category, base)])
+                cart = _signed_cart(m, rng, [CartLine(item, category, base, quantity=1)], agent_key, agent_id=agent_id)
                 emit(case, m, cart, "ALLOW")
 
             elif case == "over_cap":
                 over = int(cap * rng.uniform(1.15, 2.6))
-                cart = _cart(m, rng, [CartLine(item, category, over)])
+                cart = _signed_cart(m, rng, [CartLine(item, category, over, quantity=1)], agent_key, agent_id=agent_id)
                 emit(case, m, cart, "BLOCK")
 
             elif case == "wrong_category":
@@ -194,22 +224,24 @@ def build(n: int, seed: int) -> tuple[list[dict], str]:
                 # human allowed - that row would be labelled BLOCK while being
                 # genuinely in scope, and it would poison the ground truth.
                 desc, cat = rng.choice([o for o in OUT_OF_SCOPE if o[1] != category])
-                cart = _cart(m, rng, [CartLine(desc, cat, base)])
+                cart = _signed_cart(m, rng, [CartLine(desc, cat, base, quantity=1)], agent_key, agent_id=agent_id)
                 emit(case, m, cart, "BLOCK")
 
             elif case == "expired":
                 # Issued long enough ago that its 24h TTL has run out.
                 issued = NOW - rng.randint(25 * 3600, 96 * 3600)
-                m, item = _mandate_for(rng, category, cap, issued, MANDATE_TTL_SECONDS)
-                cart = _cart(m, rng, [CartLine(item, category, base)])
+                m, item = _mandate_for(rng, category, cap, issued, MANDATE_TTL_SECONDS, agent_id)
+                cart = _signed_cart(m, rng, [CartLine(item, category, base, quantity=1)], agent_key, agent_id=agent_id)
                 emit(case, m, cart, "BLOCK")
 
             elif case == "injection_cross_category":
                 desc, cat, amt = rng.choice(WARRANTY_LINES)
-                cart = _cart(
+                cart = _signed_cart(
                     m, rng,
-                    [CartLine(item, category, base), CartLine(desc, cat, amt)],
+                    [CartLine(item, category, base, quantity=1), CartLine(desc, cat, amt, quantity=1)],
+                    agent_key,
                     note=rng.choice(INJECTION_NOTES),
+                    agent_id=agent_id,
                 )
                 emit(case, m, cart, "BLOCK")
 
@@ -221,18 +253,30 @@ def build(n: int, seed: int) -> tuple[list[dict], str]:
                 if amt == 0:
                     base = int(cap * 0.4)
                     amt = int(cap * 0.3)
-                cart = _cart(
+                cart = _signed_cart(
                     m, rng,
-                    [CartLine(item, category, base), CartLine(desc, category, amt)],
+                    [CartLine(item, category, base, quantity=1), CartLine(desc, category, amt, quantity=1)],
+                    agent_key,
                     note=rng.choice(INJECTION_NOTES),
+                    agent_id=agent_id,
                 )
+                emit(case, m, cart, "BLOCK")
+
+            elif case == "quantity_inflation":
+                # The human asked for one item; the agent adds multiple identical
+                # items, keeping the total under the cap. The deterministic check
+                # catches absurd quantities; this case stays within the same
+                # bound so only the intent check can catch it.
+                qty = rng.choice([5, 8, 10])
+                unit = max(base // qty, 20_000)
+                cart = _signed_cart(m, rng, [CartLine(item, category, unit, quantity=qty)], agent_key, agent_id=agent_id)
                 emit(case, m, cart, "BLOCK")
 
             elif case == "high_value_legit":
                 cap = rng.choice([1_500_000, 2_500_000, 4_000_000])
-                m, item = _mandate_for(rng, category, cap, issued, MANDATE_TTL_SECONDS)
+                m, item = _mandate_for(rng, category, cap, issued, MANDATE_TTL_SECONDS, agent_id)
                 amount = rng.randint(1_000_000, cap)
-                cart = _cart(m, rng, [CartLine(item, category, amount)])
+                cart = _signed_cart(m, rng, [CartLine(item, category, amount, quantity=1)], agent_key, agent_id=agent_id)
                 emit(case, m, cart, "STEP_UP")
 
     rng.shuffle(rows)
@@ -256,7 +300,7 @@ def build(n: int, seed: int) -> tuple[list[dict], str]:
         }
         rows.insert(rng.randint(idx + 1, len(rows)), replay)
 
-    return rows, pub_hex
+    return rows, pub_hex, agent_id, agent_pub_hex
 
 
 def main() -> None:
@@ -266,7 +310,7 @@ def main() -> None:
     ap.add_argument("--out", default=os.path.join(HERE, "transactions.jsonl"))
     args = ap.parse_args()
 
-    rows, pub_hex = build(args.n, args.seed)
+    rows, pub_hex, agent_id, agent_pub_hex = build(args.n, args.seed)
     with open(args.out, "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")
@@ -276,6 +320,8 @@ def main() -> None:
         "seed": args.seed,
         "now": NOW,
         "payer_public_key": pub_hex,
+        "agent_public_key": agent_pub_hex,
+        "agent_id": agent_id,
         "cases": {c: sum(1 for r in rows if r["case"] == c) for c in CASES},
     }
     with open(os.path.join(os.path.dirname(args.out), "meta.json"), "w", encoding="utf-8") as f:

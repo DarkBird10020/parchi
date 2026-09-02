@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from parchi.agents import AgentRegistry
 from parchi.checks import NonceStore
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Engine
 from parchi.mandate import (
@@ -27,12 +28,17 @@ from parchi.mandate import (
     IntentMandate,
     new_mandate,
     sign,
+    sign_cart,
 )
 
 NOW = 1_767_225_600
 KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 PUB = KEY.public_key()
 OTHER_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32, 64)))
+AGENT_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(64, 96)))
+AGENT_PUB = AGENT_KEY.public_key()
+BAD_AGENT_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(96, 128)))
+HONEST_AGENT = "agt_honest"
 
 PATTERNS: list[tuple] = []
 
@@ -54,19 +60,36 @@ def a_mandate(**over) -> IntentMandate:
         allowed_categories=("footwear",),
         prompt_playback="buy running shoes under Rs 5,000",
         issued_at=NOW - 3600,
+        allowed_agent_id=HONEST_AGENT,
     )
     kw.update(over)
     return new_mandate(**kw)
 
 
-def a_cart(lines=None, method="upi", payee="mrc_bluleaf", note="") -> Cart:
+def a_cart(lines=None, method="upi", payee="mrc_bluleaf", note="",
+           agent_id: str = HONEST_AGENT, agent_key: Ed25519PrivateKey = AGENT_KEY) -> Cart:
     if lines is None:
         lines = [CartLine("running shoes", "footwear", 420_000)]
-    return Cart(tuple(lines), method, payee, note)
+    unsigned = Cart(tuple(lines), method, payee, note, agent_id=agent_id)
+    if agent_key is None:
+        return unsigned
+    return Cart(
+        unsigned.lines, unsigned.method, unsigned.payee_id, unsigned.merchant_note,
+        agent_id=agent_id, agent_signature=sign_cart(unsigned, agent_key),
+    )
+
+
+def agents(**over) -> AgentRegistry:
+    kw = {HONEST_AGENT: AGENT_PUB}
+    kw.update(over)
+    r = AgentRegistry()
+    for agent_id, pub in kw.items():
+        r.register(agent_id, pub)
+    return r
 
 
 def eng(**over) -> Engine:
-    kw = dict(nonces=NonceStore(), provider="heuristic")
+    kw = dict(nonces=NonceStore(), provider="heuristic", agents=agents())
     kw.update(over)
     return Engine(**kw)
 
@@ -307,13 +330,41 @@ def _():
 # 8. Known blind spot - recorded, not hidden
 # ---------------------------------------------------------------------------
 
-@pattern("quantity-inflation", ALLOW,
-         "KNOWN BLIND SPOT: 5 identical allowed pairs, under the cap. The human said "
-         "'shoes'; no rule and no lexical check can tell one pair from five.")
+@pattern("quantity-inflation", BLOCK,
+         "5 identical allowed pairs, under the cap. The playback said 'buy running shoes'; "
+         "the heuristic treats 'shoes' as singular and blocks the inflation.")
 def _():
     m = a_mandate(max_amount_paise=1_000_000)
     lines = [CartLine("running shoes", "footwear", 180_000) for _ in range(5)]
     return eng(), m, sign(m, KEY), a_cart(lines)
+
+
+# ---------------------------------------------------------------------------
+# 9. Agent identity
+# ---------------------------------------------------------------------------
+
+@pattern("agent-substitution", BLOCK,
+         "a valid mandate for the honest agent, but the cart is signed by another agent")
+def _():
+    m = a_mandate()
+    return eng(), m, sign(m, KEY), a_cart(agent_id="agt_evil", agent_key=BAD_AGENT_KEY)
+
+
+@pattern("missing-agent-signature", BLOCK,
+         "the cart claims the allowed agent but carries no signature")
+def _():
+    m = a_mandate()
+    return eng(), m, sign(m, KEY), a_cart(agent_key=None)
+
+
+@pattern("tampered-agent-cart", BLOCK,
+         "the honest agent signed one cart, but the payee was changed afterwards")
+def _():
+    m = a_mandate()
+    signed = a_cart()
+    tampered = Cart(signed.lines, signed.method, "mrc_attacker", signed.merchant_note,
+                    agent_id=signed.agent_id, agent_signature=signed.agent_signature)
+    return eng(), m, sign(m, KEY), tampered
 
 
 # ---------------------------------------------------------------------------

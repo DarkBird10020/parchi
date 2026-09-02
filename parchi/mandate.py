@@ -29,6 +29,10 @@ MANDATE_TTL_SECONDS = 24 * 60 * 60  # Demo policy, not a protocol requirement.
 # sentence; it is either a bug or someone probing the checkpoint.
 MAX_CART_LINES = 50
 
+# Same for quantity: a human buying 100 of one personal item is either a bug or
+# an attempt to exhaust the cap through one line.
+MAX_LINE_QUANTITY = 50
+
 # Tolerance for honest clock drift between the signing device and the merchant.
 CLOCK_SKEW_SECONDS = 300
 
@@ -62,14 +66,19 @@ class IntentMandate:
     issued_at: int                    # unix seconds
     expires_at: int                   # unix seconds. TTL, ~24h
     nonce: str                        # one-time use, so it cannot be replayed
+    allowed_agent_id: str = ""        # optional: which agent may present this slip
 
     def canonical(self) -> bytes:
         """Sorted keys + no whitespace = the same bytes every time.
 
         Tuples serialise as JSON arrays, so a mandate rebuilt from JSON (lists)
         must be normalised through `from_dict` before it will verify.
+
+        Empty optional fields are omitted so adding them later does not break
+        signatures of older mandates that were issued without them.
         """
-        return json.dumps(asdict(self), sort_keys=True, separators=(",", ":")).encode()
+        d = {k: v for k, v in asdict(self).items() if v not in (None, "")}
+        return json.dumps(d, sort_keys=True, separators=(",", ":")).encode()
 
     def to_dict(self) -> dict[str, Any]:
         d = asdict(self)
@@ -90,6 +99,7 @@ class IntentMandate:
             issued_at=int(d["issued_at"]),
             expires_at=int(d["expires_at"]),
             nonce=d["nonce"],
+            allowed_agent_id=str(d.get("allowed_agent_id", "")),
         )
 
 
@@ -100,6 +110,7 @@ class CartLine:
     description: str
     category: str
     amount_paise: int
+    quantity: int = 1
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -113,14 +124,21 @@ class Cart:
     method: str                       # "upi" | "card"
     payee_id: str
     merchant_note: str = ""           # product-page text; injection lives here
+    agent_id: str = ""                # optional: which agent is presenting the cart
+    agent_signature: str = ""         # optional: agent's signature over cart canonical bytes
 
     @property
     def total_paise(self) -> int:
-        return sum(line.amount_paise for line in self.lines)
+        return sum(line.amount_paise * line.quantity for line in self.lines)
 
     @property
     def categories(self) -> tuple:
         return tuple(dict.fromkeys(line.category for line in self.lines))
+
+    def canonical(self) -> bytes:
+        """The bytes the agent signs."""
+        d = {k: v for k, v in asdict(self).items() if k != "agent_signature"}
+        return json.dumps(d, sort_keys=True, separators=(",", ":")).encode()
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -128,6 +146,8 @@ class Cart:
             "method": self.method,
             "payee_id": self.payee_id,
             "merchant_note": self.merchant_note,
+            "agent_id": self.agent_id,
+            "agent_signature": self.agent_signature,
             "total_paise": self.total_paise,
         }
 
@@ -139,12 +159,15 @@ class Cart:
                     description=line["description"],
                     category=line["category"],
                     amount_paise=int(line["amount_paise"]),
+                    quantity=int(line.get("quantity", 1)),
                 )
                 for line in d["lines"]
             ),
             method=d["method"],
             payee_id=d["payee_id"],
             merchant_note=d.get("merchant_note", ""),
+            agent_id=d.get("agent_id", ""),
+            agent_signature=d.get("agent_signature", ""),
         )
 
 
@@ -155,6 +178,18 @@ def sign(m: IntentMandate, key: Ed25519PrivateKey) -> str:
 def verify(m: IntentMandate, sig_hex: str, pub: Ed25519PublicKey) -> bool:
     try:
         pub.verify(bytes.fromhex(sig_hex), m.canonical())
+        return True
+    except Exception:
+        return False
+
+
+def sign_cart(cart: Cart, key: Ed25519PrivateKey) -> str:
+    return key.sign(cart.canonical()).hex()
+
+
+def verify_cart(cart: Cart, sig_hex: str, pub: Ed25519PublicKey) -> bool:
+    try:
+        pub.verify(bytes.fromhex(sig_hex), cart.canonical())
         return True
     except Exception:
         return False
@@ -171,6 +206,7 @@ def new_mandate(
     ttl_seconds: int = MANDATE_TTL_SECONDS,
     mandate_id: str | None = None,
     nonce: str | None = None,
+    allowed_agent_id: str = "",
 ) -> IntentMandate:
     """Mint a mandate.
 
@@ -193,6 +229,7 @@ def new_mandate(
         issued_at=issued,
         expires_at=issued + ttl_seconds,
         nonce=nonce or ("nc_" + uuid.uuid4().hex),
+        allowed_agent_id=allowed_agent_id or "",
     )
 
 

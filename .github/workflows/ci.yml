@@ -49,6 +49,9 @@ jobs:
       - name: Adversarial patterns
         run: python tests/test_attacks.py
 
+      - name: Held-out adversarial eval
+        run: python eval/heldout.py
+
   scoreboard:
     name: scoreboard reproduces and does not regress
     runs-on: ubuntu-latest
@@ -122,6 +125,7 @@ jobs:
               "allow": "ALLOW", "over_cap": "BLOCK", "injection": "BLOCK",
               "step_up": "STEP_UP", "expired": "BLOCK", "wrong_method": "BLOCK",
               "payee_substitution": "BLOCK", "replay": "BLOCK",
+              "quantity_inflation": "BLOCK", "agent_substitution": "BLOCK",
           }
           # Every scenario the page offers must be covered here: one added to the
           # server and forgotten here is a scenario nothing checks.

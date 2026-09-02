@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
+from parchi.agents import AgentRegistry
 from parchi.checks import NonceStore
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Engine
 from parchi.evidence import build_pack
@@ -26,12 +27,16 @@ from parchi.mandate import (
     IntentMandate,
     new_mandate,
     sign,
+    sign_cart,
     verify,
 )
 
 NOW = 1_767_225_600
 KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32)))
 PUB = KEY.public_key()
+AGENT_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(32, 64)))
+AGENT_PUB = AGENT_KEY.public_key()
+BAD_AGENT_KEY = Ed25519PrivateKey.from_private_bytes(bytes(range(64, 96)))
 
 
 def a_mandate(**over) -> IntentMandate:
@@ -49,17 +54,30 @@ def a_mandate(**over) -> IntentMandate:
 
 
 def a_cart(amount=420_000, category="footwear", method="upi",
-           desc="running shoes", extra=None, note="") -> Cart:
+           desc="running shoes", extra=None, note="",
+           agent_id: str = "", agent_key: Ed25519PrivateKey | None = None) -> Cart:
     lines = [CartLine(desc, category, amount)]
     if extra:
         lines.append(extra)
-    return Cart(tuple(lines), method, "mrc_bluleaf", note)
+    unsigned = Cart(tuple(lines), method, "mrc_bluleaf", note, agent_id=agent_id)
+    if agent_key is None:
+        return unsigned
+    return Cart(
+        unsigned.lines, unsigned.method, unsigned.payee_id, unsigned.merchant_note,
+        agent_id=agent_id, agent_signature=sign_cart(unsigned, agent_key),
+    )
 
 
 def engine(**over) -> Engine:
     kw = dict(nonces=NonceStore(), provider="heuristic")
     kw.update(over)
     return Engine(**kw)
+
+
+def agent_registry(agent_id: str = "agt_honest") -> AgentRegistry:
+    r = AgentRegistry()
+    r.register(agent_id, AGENT_PUB)
+    return r
 
 
 # --------------------------------------------------------------------------
@@ -115,6 +133,25 @@ def test_wrong_category_blocks():
     d = engine().authorize(m, sign(m, KEY), PUB,
                            a_cart(category="crypto", desc="crypto voucher"), now=NOW)
     assert d.verdict == BLOCK and d.checks[-1].name == "category"
+
+
+def test_agent_identity_required_and_verified():
+    m = a_mandate(allowed_agent_id="agt_honest")
+    e = engine(agents=agent_registry())
+    cart = a_cart(agent_id="agt_honest", agent_key=AGENT_KEY)
+    d = e.authorize(m, sign(m, KEY), PUB, cart, now=NOW)
+    assert d.verdict == ALLOW
+    assert any(c.name == "agent_identity" and c.passed for c in d.checks)
+
+
+def test_agent_substitution_blocks():
+    m = a_mandate(allowed_agent_id="agt_honest")
+    e = engine(agents=agent_registry())
+    # The cart is signed by a different agent's key.
+    cart = a_cart(agent_id="agt_evil", agent_key=BAD_AGENT_KEY)
+    d = e.authorize(m, sign(m, KEY), PUB, cart, now=NOW)
+    assert d.verdict == BLOCK
+    assert any(c.name == "agent_identity" and not c.passed for c in d.checks)
 
 
 def test_over_the_cap_blocks():
@@ -197,12 +234,12 @@ def test_the_same_seed_produces_byte_identical_rows():
         os.path.abspath(__file__))), "data"))
     import generate
 
-    first, key_a = generate.build(n=40, seed=3)
-    second, key_b = generate.build(n=40, seed=3)
+    first, key_a, _, _ = generate.build(n=40, seed=3)
+    second, key_b, _, _ = generate.build(n=40, seed=3)
     assert json.dumps(first, sort_keys=True) == json.dumps(second, sort_keys=True)
     assert key_a == key_b
 
-    other, _ = generate.build(n=40, seed=4)
+    other, _, _, _ = generate.build(n=40, seed=4)
     assert json.dumps(first, sort_keys=True) != json.dumps(other, sort_keys=True)
 
 
@@ -284,7 +321,7 @@ def test_evidence_pack_carries_everything_a_dispute_needs():
         assert pack["ledger_chain"]["intact"] is True
         assert {c["name"] for c in pack["checks"]} == {
             "signature", "expiry", "payee", "method", "line_items",
-            "category", "amount_cap", "nonce_replay"}
+            "line_quantity", "category", "amount_cap", "agent_identity", "nonce_replay"}
         json.dumps(pack)  # the pack must be serialisable as-is
 
 

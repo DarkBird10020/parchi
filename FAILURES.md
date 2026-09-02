@@ -340,6 +340,116 @@ pretend is rare.
 
 ---
 
+### 12. Quantity inflation — five identical allowed pairs, under the cap
+
+**Broke.** `quantity-inflation` was a known blind spot: the cart contained five
+lines of "running shoes", each within an allowed category and the total under the
+cap. Every deterministic check passed, and the heuristic intent matcher treated
+"shoes" as a request for any number of pairs.
+
+**Assumed.** That only a real model could count what a human asked for, so the
+blind spot belonged in the README and the attack suite as a recorded limitation.
+
+**Actually.** The playback itself carries a quantity: "buy running shoes" implies
+one pair, and explicit numbers like "two" or "five" are words the offline matcher
+can read. The real gap was in the data model — `CartLine` had no `quantity` field,
+so five pairs showed up as five separate lines or one line with quantity hidden
+from the prompt.
+
+**Changed.** Added `quantity` to `CartLine`, rendered it in the intent prompt,
+and made the heuristic aggregate identical descriptions and compare the total to
+the implied quantity from the playback. Added a deterministic sanity bound on
+per-line quantity so runaway inflation is blocked even if the model is dead.
+Turned the known blind spot into a defended pattern.
+
+**Cost.** ~30 minutes. The lesson: a "model-only" gap often has a cheap
+representation fix; the model should judge intent, not reconstruct data the
+cart should have carried in the first place.
+
+---
+
+### 13. "My agent did that, I didn't" — there was no agent to point at
+
+**Broke.** Parchi verified that a cart matched a signed payer intent, but it had
+no answer to *which* agent presented the cart. A stolen agent credential or a
+malicious third-party agent could replay a valid mandate.
+
+**Assumed.** That agent identity was infrastructure outside the demo scope and
+belonged in known limitations.
+
+**Actually.** The dispute story Parchi tells is incomplete without it. When a
+customer says *"my agent did that, I didn't"*, the merchant needs a signed
+statement from the agent itself, not just the payer's permission. That is a
+checkpoint-level question, not an ops-layer one.
+
+**Changed.** Added optional `allowed_agent_id` to the mandate, an `agent_id` +
+`agent_signature` on the cart, and a deterministic `agent_identity` check that
+verifies the cart is signed by the agent named in the mandate. Added three attack
+patterns: agent substitution, missing signature, and tampered cart. The canonical
+byte format omits empty optional fields so older mandates still verify.
+
+**Cost.** ~60 minutes. The lesson: the difference between a filter and a risk
+product is who you can hold accountable when something goes wrong.
+
+---
+
+### 14. The demo stopped demonstrating anything, and every failure was safe
+
+**Broke.** Clicking through the demo against a live endpoint, the `injection`
+scenario — the one beat where the model earns its place — came back **STEP_UP,
+not BLOCK**. So did `step_up`, for the wrong reason. CI was green throughout.
+
+**Assumed.** A timeout. The engine's budget is 4s and the endpoint answers in
+2–10s, so the wall looked obvious.
+
+**Actually.** Three bugs stacked behind one symptom, and *every one of them failed
+safe* — which is precisely why none of them surfaced as a failure.
+
+1. **The 4s budget is a production posture, not a demo one.** Raising it fixed
+   `quantity_inflation` and nothing else. CI never saw this: with no key the
+   provider resolves to the offline matcher, which answers instantly, so the
+   configuration that breaks the demo is the one CI does not run.
+
+2. **One HTTPS connection shared across threads.** Keep-alive pooling was added
+   to stop `getaddrinfo failed` on long batches, with the connection in a module
+   global. `http.client` is not thread-safe and uvicorn runs sync handlers in a
+   threadpool, so concurrent authorizations interleaved on one socket and came
+   back as `ResponseNotReady: Idle` — or as one thread reading *another thread's
+   response body*. Measured: 6 concurrent requests, 4 wrong. Fixed with
+   `threading.local`, keeping the DNS win without sharing a socket.
+
+3. **The model answers correctly in the wrong envelope.** With the transport
+   fixed, ~9% of replies were still `{"answer": false}` — the right judgement,
+   no reason attached — or a double-encoded
+   `{"answer": "{\"match\": false, ...}"}`. A bare boolean must be refused: an
+   unexplained `true` would move money with nothing in the ledger to justify it.
+   So every one degraded.
+
+**Changed.** `_unwrap` recovers the double-encoded case, narrowly — single-key
+envelopes, two levels deep, and the caller still enforces the exact shape and
+types, so an unrecognised envelope still degrades. The bare-boolean case was
+fixed at the source instead, by requesting a strict `json_schema` rather than a
+bare `json_object`. Measured on the same cart, 32 calls each:
+
+| `response_format` | usable |
+| :--- | :--- |
+| `json_object` | 29/32 |
+| `json_schema` strict | **32/32** |
+
+A rejection of `json_schema` falls back to `json_object` once and is remembered,
+because portability across OpenAI-compatible endpoints is that module's purpose.
+
+Demo afterwards: 5 sequential and 6 concurrent injection requests, **11/11 BLOCK,
+zero degraded**, and all 10 scenarios match the verdicts CI asserts.
+
+**Cost.** ~70 minutes, and the uncomfortable lesson: *a system designed to fail
+safe will hide its own bugs.* Every failure here produced a defensible verdict and
+a complete audit record, so nothing alerted — the checkpoint was fine and the
+product was broken. Watching only for unsafe outcomes would never have found it.
+The rate of `degraded` is the number to watch, not just the verdict.
+
+---
+
 ### Resolved (was "Still unsolved")
 
 The headline number is now a model number. The full 1,000-row run against
@@ -348,3 +458,6 @@ The headline number is now a model number. The full 1,000-row run against
 heuristic table it replaced as the claim of record. The heuristic row stays —
 it is the number a no-key reproduction gets, and the gap between the two rows
 is now itself a documented finding rather than a caveat.
+
+The quantity-inflation blind spot and the missing agent-identity check are now
+fixed and defended by tests; see entries 12 and 13.

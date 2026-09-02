@@ -8,11 +8,17 @@
 
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
-[![Attack patterns](https://img.shields.io/badge/attack%20cases-27%20defended%20%2B%201%20known-yellow)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-48%20passing-success)](tests/)
+[![Attack patterns](https://img.shields.io/badge/attack%20cases-31%20defended-success)](tests/test_attacks.py)
+[![Tests](https://img.shields.io/badge/tests-52%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
+
+<div align="center">
+
+🎬 **[Watch the 5-minute pitch](docs/pitch-video.md)** · **[SUBMISSION.md](docs/submission.md)**
+
+</div>
 
 <img src="docs/images/hero.jpg" alt="Parchi landing page: the permission slip, with a BLOCKED stamp" width="100%">
 
@@ -62,8 +68,8 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python tests/test_parchi.py   # 18 unit tests, no pytest needed
-python tests/test_attacks.py  # 28 adversarial patterns, printed as a report
+python tests/test_parchi.py   # 21 unit tests, no pytest needed
+python tests/test_attacks.py  # 31 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000 — the page in the video
 ```
 
@@ -109,7 +115,7 @@ flowchart TD
 
     subgraph P["PARCHI — the checkpoint"]
         direction TB
-        R["<b>8 deterministic checks</b><br/>signature → expiry → payee → method →<br/>line items → category → cap → replay<br/><i>short-circuits on first failure · no AI in that file</i>"]
+        R["<b>10 deterministic checks</b><br/>signature → expiry → payee → method → line items →<br/>quantity → category → cap → agent → replay<br/><i>short-circuits on first failure · no AI in that file</i>"]
         R -->|all pass| M["<b>1 model call</b><br/>does this cart match what the human asked for?<br/><i>strict typed JSON · provider timeout · untrusted text fenced as data</i>"]
     end
 
@@ -123,9 +129,10 @@ flowchart TD
     ALLOW --> L
 ```
 
-**Eight of the nine checks are plain code**, because rules are faster, cheaper and
+**Ten of the eleven checks are plain code**, because rules are faster, cheaper and
 auditable. The model answers exactly one question rules cannot: *does this cart
-match what the human actually asked for?*
+match what the human actually asked for?* The new quantity and agent-identity
+checks close two gaps that used to require the model.
 
 And there are **three answers, not two**. A system with only allow and block is a
 filter. The third — **ask the human** — is what makes it a risk product, and it is
@@ -141,19 +148,20 @@ blocked genuine customer is money the merchant lost.
 
 | Approach | Catches violations | Blocks good customers | Cost of the mistakes |
 | :--- | :--- | :--- | :--- |
-| Allow everything | 0/260 (0%) | 0 | **₹17,05,171** paid out on violations |
-| Block all agent traffic | 260/260 (100%) | 740 | **₹34,43,816** of good revenue gone |
-| Rules only *(the day-2 baseline)* | 235/260 (90.4%) | 0 | ₹1,20,785 paid out on violations |
-| **Parchi** *(rules + one model call)* | **260/260 (100%)** | **0** | **₹0** |
+| Allow everything | 0/280 (0%) | 0 | **₹17,83,157** paid out on violations |
+| Block all agent traffic | 280/280 (100%) | 720 | **₹33,73,331** of good revenue gone |
+| Rules only *(the day-2 baseline)* | 235/280 (83.9%) | 0 | ₹2,19,908 paid out on violations |
+| **Parchi** *(rules + one model call)* | **280/280 (100%)** | **0** | **₹0** |
 
 <img src="docs/images/scoreboard.jpg" alt="Scoreboard: cost of the mistakes across four approaches" width="100%">
 
 Plus **40/40** legitimate high-value carts routed to a human instead of
 auto-approved, and a ledger chain intact across all 1,000 records.
 
-The 25 violations rules alone miss are all the same case: a prompt injection on the
-product page that adds a line item **inside an allowed category and under the cap**.
-No rule can see it. That is the entire reason the model call exists.
+The 45 violations rules alone miss fall into two cases: a prompt injection on the
+product page that adds a line item **inside an allowed category and under the cap**,
+and **quantity inflation** — multiple identical allowed items that keep the total
+under the cap. No rule can see either. That is the entire reason the model call exists.
 
 > [!IMPORTANT]
 > **The table above is the offline `heuristic` matcher's.** This repo runs end to
@@ -167,7 +175,9 @@ No rule can see it. That is the entire reason the model call exists.
 
 Same 1,000 rows, one call per cart against `z-ai/glm-4.7-flash`
 ([`eval/results_model_full.json`](eval/results_model_full.json), ledger in
-[`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)):
+[`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)).
+*This table is from the previous dataset; the new quantity/agent cases are being
+re-measured against a live endpoint.*
 
 | Approach | Catches violations | Blocks good customers | Degraded | Cost of the mistakes |
 | :--- | :--- | :--- | :--- | :--- |
@@ -210,7 +220,7 @@ any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLO
 python demo/server.py     # → http://127.0.0.1:8000
 ```
 
-Eight scenarios, each a real `POST /api/authorize`. Every check and its reason is
+Ten scenarios, each a real `POST /api/authorize`. Every check and its reason is
 shown, the evidence pack is the JSON a merchant would send to an issuer, and the
 ledger pane verifies its own hash chain — with a **Tamper** button, because showing
 it beats claiming it.
@@ -247,30 +257,45 @@ the add-on the product page talked the agent into.
 
 ## Adversarial testing
 
-`python tests/test_attacks.py` runs **28 named attack patterns**, each with the
+`python tests/test_attacks.py` runs **31 named attack patterns**, each with the
 verdict Parchi must return, and prints a report.
 
 | Category | Patterns |
 | :--- | :--- |
 | Forging & tampering | raise the cap · widen categories · wrong key · signature swap · garbage / empty signature |
 | Time | expired by one second · TTL runs backwards · issued in the future · still-valid boundary |
-| Identity | payee substitution |
+| Identity | payee substitution · **agent substitution** · missing agent signature · tampered agent cart |
 | Amount arithmetic | negative line offset · zero-value cart · free-item padding · cap boundary · step-up boundary · line flood |
 | String tricks | method / category case variance · whitespace padding · **Cyrillic homoglyph category** |
 | Replay | same slip new cart · nonce collision · a blocked cart must not burn the slip |
 | Prompt injection | in the product page · in a line description · **while the model is dead** |
+| Quantity | **quantity inflation** — multiple allowed items under the cap |
 | Webhooks | forged `X-Razorpay-Signature` · re-serialised body · unknown order · unconfigured secret |
 
 **Six of these got through on the first run**, including payee substitution (a valid
 slip for one shop authorised a purchase at *any* other) and a zero-value cart. Two
 more were passing *for the wrong reason* — the model happened to catch what no rule
-did, so a model outage would have re-opened both. Fixing them is why there are eight
-deterministic checks instead of six. The full post-mortem is in
-[FAILURES.md](FAILURES.md).
+did, so a model outage would have re-opened both. Fixing them is why there are now ten
+deterministic checks instead of six.
 
-One pattern is recorded as a **known blind spot** rather than quietly dropped:
-`quantity-inflation` — five identical allowed pairs, under the cap, still reads as
-in-scope.
+### The held-out set the generator didn't write
+
+The 1,000-row batch is synthetic and *tuned*: the generator encodes the same policy
+the engine does, so a perfect score there can mean "the engine agrees with its own
+generator" rather than "the engine is right". `python eval/heldout.py` runs **13
+hand-written cases** — categories, playback phrasings, quantity shapes and one-paise
+amount edges the generator never produces — written independently of the engine and
+scored with their own ground-truth labels.
+
+```
+held-out adversarial eval — 13 hand-written cases
+violations caught  : 7/7   (recall 100%)
+good carts blocked : 0     (precision 100%)
+13/13 exact verdicts correct
+```
+
+This is the difference between "my model looks good on my data" and "my checkpoint
+holds on data it was not tuned against". It runs in CI next to the attack suite.
 
 ### Nothing merges that breaks the checkpoint
 
@@ -279,7 +304,7 @@ customer who was refused, so the repo does not rely on anyone remembering to run
 things.
 
 - **[`ci.yml`](.github/workflows/ci.yml)** — ruff, unit tests on Python
-  3.11/3.12/3.13, all 28 attack patterns, a check that the generated dataset is
+  3.11/3.12/3.13, all 31 attack patterns, a check that the generated dataset is
   **byte-identical** for a fixed seed, the scoreboard gate, a ledger-chain
   verification across all 1,000 records, and a job that boots the demo server and
   asserts every scenario's verdict.
@@ -308,6 +333,7 @@ not present at purchase time. This prototype does not claim AP2 wire-format conf
 | `prompt_playback` | The agent's own words for what the human asked. This is the field the AI check compares against |
 | `expires_at` | Demo TTL: 24 hours |
 | `nonce` | One-time use, so a mandate cannot be replayed |
+| `allowed_agent_id` | Which agent may present this slip (optional) |
 | `signature` | Ed25519 over canonical JSON, signed by the human's key |
 
 [**`docs/upi-mapping.md`**](docs/upi-mapping.md) maps every field onto **UPI Reserve
@@ -324,8 +350,9 @@ Small enough that a reviewer can read the whole thing in ten minutes. That is a 
 ```
 parchi/
 ├── parchi/
-│   ├── mandate.py       # signed intent record: canonical bytes, sign, verify
-│   ├── checks.py        # the 8 deterministic checks. no AI in this file
+│   ├── mandate.py       # signed intent record + cart canonical bytes, sign, verify
+│   ├── agents.py        # agent identity registry
+│   ├── checks.py        # the 10 deterministic checks. no AI in this file
 │   ├── intent_match.py  # the ONE model call: timeout, fallback, injection fencing
 │   ├── ledger.py        # hash-chained audit log + verify_chain()
 │   ├── engine.py        # orchestrates: checks → model → verdict → ledger
@@ -334,7 +361,7 @@ parchi/
 ├── eval/evaluate.py     # precision, recall, false-positive rupee cost, baselines
 ├── tests/
 │   ├── test_parchi.py   # core tests, including one that tampers with the ledger
-│   └── test_attacks.py  # 28 adversarial patterns with the verdict each must get
+│   └── test_attacks.py  # 31 adversarial patterns with the verdict each must get
 ├── demo/                # fastapi server + the page in the video
 ├── docs/upi-mapping.md  # mandate fields mapped onto UPI Reserve Pay
 └── FAILURES.md          # what broke, what it actually was, what it cost
@@ -358,10 +385,9 @@ Pretending a hackathon build is production-grade is the actual red flag.
 - **Keys live in memory.** No hardware-backed key storage, no 90-day rotation. The
   demo server generates a keypair at startup; a real payer key belongs in a secure
   element or wallet.
-- **Nonces are an in-process set.** Replay protection does not survive a restart and
-  would need a shared store to survive more than one instance.
-- **No agent registry.** Parchi verifies a cart against a trusted payer key and signed
-  intent record. It does not verify which agent presents it.
+- **Nonces and agent registry are in-process.** Replay protection and agent key
+  lookup do not survive a restart and would need a shared store to survive more than
+  one instance.
 - **Razorpay integration is test-mode only.** Orders and Checkout signature
   verification work with supplied test credentials. UPI Reserve Pay provisioning
   remains outside this repository.
@@ -371,6 +397,8 @@ Pretending a hackathon build is production-grade is the actual red flag.
   to a human instead — cheaper and, for four days, more honest.
 - **The intent check is one call with no retry.** In front of a payment, a slow
   answer is a wrong answer; the deterministic fallback *is* the retry policy.
+- **The agent registry is in-memory.** A real deployment would back it with a shared
+  store and key rotation.
 
 ---
 

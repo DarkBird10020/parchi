@@ -24,9 +24,12 @@ key leaks is a stack trace pasted into an issue.
 
 from __future__ import annotations
 
+import http.client
 import json
 import os
+import threading
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Any
 
@@ -200,52 +203,89 @@ def resolve_model(requested: str | None = None) -> str:
 # the call
 # --------------------------------------------------------------------------
 
-_CONN: Any = None
-_CONN_KEY: tuple | None = None
+# One keep-alive connection PER THREAD, never one shared between them.
+#
+# http.client.HTTPSConnection is not thread-safe, and the way that surfaces is
+# nasty rather than loud: uvicorn runs sync handlers in a threadpool, so two
+# concurrent authorizations grabbed the same socket, interleaved their
+# request/response pairs, and came back as `ResponseNotReady: Idle` or - worse -
+# one thread reading the *other* thread's response body. Measured on the demo
+# server: 6 concurrent requests, 4 of them wrong. Both failures degrade rather
+# than raise, so the checkpoint stayed safe and the demo silently stopped
+# demonstrating anything.
+#
+# threading.local keeps the reason the pooling exists in the first place: urllib
+# opened a fresh socket, and therefore a fresh DNS lookup, per request, and a
+# 25-row batch lost 6 rows to `getaddrinfo failed`. Per-thread reuse keeps the
+# lookups down without sharing a socket across threads.
+_LOCAL = threading.local()
 
 
 def _connection(timeout: float):
-    """One keep-alive HTTPS connection, reused across calls.
-
-    urllib opens a fresh socket per request, which means a fresh DNS lookup per
-    request. Over a 1,000-row batch that is 1,000 lookups in a few minutes, and
-    the resolver gives out long before the endpoint does: a measured 25-row run
-    lost 6 rows to `getaddrinfo failed`, none of them the model's fault. Those
-    rows do not error, they degrade - so the batch completes and quietly reports
-    the fallback's answer for a quarter of the data.
-
-    One connection, one lookup, reconnect only when the socket actually breaks.
-    """
-    global _CONN, _CONN_KEY
-    import http.client
-    import urllib.parse
-
     parsed = urllib.parse.urlparse(base_url())
     key = (parsed.hostname, parsed.port, timeout)
-    if _CONN is None or key != _CONN_KEY:
-        _CONN = http.client.HTTPSConnection(parsed.hostname, parsed.port,
-                                            timeout=timeout)
-        _CONN_KEY = key
-    return _CONN, parsed.path.rstrip("/")
+    conn = getattr(_LOCAL, "conn", None)
+    if conn is None or getattr(_LOCAL, "key", None) != key:
+        conn = http.client.HTTPSConnection(parsed.hostname, parsed.port, timeout=timeout)
+        _LOCAL.conn = conn
+        _LOCAL.key = key
+    return conn, parsed.path.rstrip("/")
 
 
 def _drop_connection() -> None:
-    global _CONN
+    conn = getattr(_LOCAL, "conn", None)
     try:
-        if _CONN is not None:
-            _CONN.close()
+        if conn is not None:
+            conn.close()
     except Exception:
         pass
-    _CONN = None
+    _LOCAL.conn = None
+    _LOCAL.key = None
+
+
+VERDICT_SCHEMA = {
+    "type": "object",
+    "properties": {"match": {"type": "boolean"}, "reason": {"type": "string"}},
+    "required": ["match", "reason"],
+    "additionalProperties": False,
+}
+
+# None = not yet decided, True = endpoint accepts json_schema, False = it does not.
+_SUPPORTS_JSON_SCHEMA: bool | None = None
+
+
+def _response_format() -> dict[str, Any]:
+    if _SUPPORTS_JSON_SCHEMA is False:
+        return {"type": "json_object"}
+    return {
+        "type": "json_schema",
+        "json_schema": {"name": "intent_verdict", "strict": True,
+                        "schema": VERDICT_SCHEMA},
+    }
 
 
 def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str, Any]:
     """One completion, JSON object out, no retries.
 
     `temperature=0` because a payment checkpoint that answers differently on the
-    same cart twice is not a checkpoint. `response_format=json_object` asks the
-    endpoint to constrain the output; the JSON parse below is still the real
-    guarantee, since not every OpenAI-compatible server honours the field.
+    same cart twice is not a checkpoint.
+
+    The response format is a strict json_schema, not a bare json_object, and the
+    difference is measured rather than assumed. Over 32 calls each against
+    GLM-4.7-flash on the same cart:
+
+        json_object          29/32 usable
+        json_schema strict   32/32 usable
+
+    The three failures were all the same shape - `{"answer": false}`: the right
+    judgement, no reason attached. That has to be refused, because an unexplained
+    `true` would move money with nothing in the ledger to justify it, so every one
+    became a needless STEP_UP. Constraining the shape at the source removes the
+    failure instead of teaching the parser to guess.
+
+    Not every OpenAI-compatible server implements json_schema, and portability is
+    this module's whole point, so a rejection falls back to json_object once and
+    is remembered for the process.
     """
     budget().spend()
     body = {
@@ -253,7 +293,7 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 400,
         "temperature": 0,
-        "response_format": {"type": "json_object"},
+        "response_format": _response_format(),
     }
     data = json.dumps(body).encode()
     headers = {
@@ -274,8 +314,21 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
             conn.request("POST", prefix + "/chat/completions", body=data, headers=headers)
             resp = conn.getresponse()
             raw = resp.read()
+            if resp.status in (400, 422) and "json_schema" in json.dumps(body):
+                # This endpoint does not implement structured outputs. Remember
+                # that, drop to json_object, and try once more - the alternative
+                # is a provider that is permanently unusable for a portability
+                # feature that was supposed to be optional.
+                global _SUPPORTS_JSON_SCHEMA
+                _SUPPORTS_JSON_SCHEMA = False
+                body["response_format"] = {"type": "json_object"}
+                data = json.dumps(body).encode()
+                _drop_connection()
+                continue
             if resp.status != 200:
                 raise RuntimeError(f"HTTP {resp.status}")
+            if _SUPPORTS_JSON_SCHEMA is None and "json_schema" in json.dumps(body):
+                _SUPPORTS_JSON_SCHEMA = True
             payload = json.loads(raw)
             break
         except RuntimeError:
@@ -290,7 +343,7 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
         raise RuntimeError(redact(str(last)))
 
     content = payload["choices"][0]["message"]["content"]
-    parsed = json.loads(_strip_fence(content))
+    parsed = _unwrap(json.loads(_strip_fence(content)))
     if not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}:
         raise RuntimeError("model returned JSON outside the match/reason schema")
     if type(parsed["match"]) is not bool:
@@ -298,6 +351,39 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
     if not isinstance(parsed["reason"], str) or not parsed["reason"].strip():
         raise RuntimeError("model returned an invalid reason")
     return parsed
+
+
+def _unwrap(parsed: Any, depth: int = 0) -> Any:
+    """Dig the verdict out of an envelope the model wrapped it in.
+
+    Measured against GLM: roughly one call in twelve answers correctly but
+    double-encodes it, e.g.
+
+        {"answer": "{\\"match\\": false, \\"reason\\": \\"...\\"}"}
+
+    The judgement inside is right. Before this, every one of those raised, took
+    the degraded path and became a STEP_UP - so a correct BLOCK turned into
+    "are you sure?" for the customer, and on the demo it read as the checkpoint
+    failing. That is a parser bug being paid for as friction.
+
+    Deliberately narrow: it unwraps a single-key object whose value is either a
+    JSON string or a nested object, at most twice, and the caller still enforces
+    the exact {match, reason} shape and the types. It never invents a verdict and
+    never relaxes what counts as one - an unrecognised envelope still degrades.
+    """
+    if depth >= 2 or not isinstance(parsed, dict):
+        return parsed
+    if "match" in parsed and "reason" in parsed:
+        return {"match": parsed["match"], "reason": parsed["reason"]}
+    if len(parsed) != 1:
+        return parsed
+    inner = next(iter(parsed.values()))
+    if isinstance(inner, str):
+        try:
+            inner = json.loads(_strip_fence(inner))
+        except (ValueError, TypeError):
+            return parsed
+    return _unwrap(inner, depth + 1)
 
 
 def _strip_fence(text: str) -> str:

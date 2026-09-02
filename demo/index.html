@@ -532,14 +532,12 @@
           a keypair at startup; a real payer key belongs in a secure element or wallet.</li>
       <li><b>Nonces are an in-process set.</b> Replay protection does not survive a restart, and
           would need a shared store to survive more than one instance.</li>
-      <li><b>No agent registry.</b> Parchi verifies a cart against a trusted payer key and signed
-          intent record, not which agent presents it.</li>
       <li><b>Razorpay test mode is optional.</b> Add test credentials to create real Orders and
           verify Checkout signatures. No live-mode key is accepted.</li>
       <li><b>Synthetic data.</b> 1,000 generated rows with known labels. Real agent traffic is
           messier, and the intent check is the part that would move first.</li>
-      <li><b>Quantity inflation is unsolved.</b> Five identical allowed pairs, under the cap,
-          still reads as in-scope. It is in the attack suite, recorded as a known blind spot.</li>
+      <li><b>Multi-instance state.</b> Nonces and the agent registry are in-memory in this demo.
+          A production deployment would share them across instances.</li>
     </ul>
   </div>
 </section>

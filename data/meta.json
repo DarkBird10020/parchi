@@ -3,14 +3,17 @@
   "seed": 7,
   "now": 1767225600,
   "payer_public_key": "9e6f0842b168bbd1690c89ca0033eb89ac819ac27aa2e077524f2d6bceca26b8",
+  "agent_public_key": "2080edad1b0914bd21c54c55f8a2928a095e61b798dfebaba21922adfdbf3a10",
+  "agent_id": "agt_shoprunner_01",
   "cases": {
-    "in_scope": 700,
+    "in_scope": 680,
     "over_cap": 80,
     "wrong_category": 60,
     "expired": 40,
     "replay": 30,
     "injection_cross_category": 25,
     "injection_in_category": 25,
+    "quantity_inflation": 20,
     "high_value_legit": 40
   }
 }

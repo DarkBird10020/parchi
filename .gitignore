@@ -13,6 +13,7 @@ eval/ledger.jsonl
 # Tool caches
 .pytest_cache/
 .ruff_cache/
+.playwright-mcp/
 
 # The seeded design canvas is a build output of design/*.dc.html
 design/parchi-landing-page.html

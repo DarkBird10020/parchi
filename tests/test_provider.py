@@ -72,6 +72,36 @@ def test_the_budget_raises_rather_than_degrading_quietly():
         op.chat_json("anything", timeout=1.0, model="x")
 
 
+def test_a_double_encoded_verdict_is_recovered():
+    """GLM answers correctly but in the wrong envelope about 1 call in 12.
+
+    Every one of those used to degrade, turning a correct BLOCK into a STEP_UP -
+    a parser bug charged to the customer as friction.
+    """
+    wrapped = {"answer": '{"match": false, "reason": "protection plan not requested"}'}
+    assert op._unwrap(wrapped) == {"match": False,
+                                   "reason": "protection plan not requested"}
+    assert op._unwrap({"result": {"match": True, "reason": "ok"}}) == {
+        "match": True, "reason": "ok"}
+    # Already correct, and extra keys around a correct pair are trimmed.
+    assert op._unwrap({"match": True, "reason": "ok"}) == {"match": True, "reason": "ok"}
+
+
+def test_unwrapping_never_invents_a_verdict():
+    """The narrowness is the point: an envelope it does not recognise must still
+    degrade, not be coerced into an ALLOW."""
+    for hostile in (
+        {"answer": "not json at all"},
+        {"a": 1, "b": 2},
+        {"answer": {"nested": {"deeper": {"match": True, "reason": "too deep"}}}},
+        {"answer": '{"verdict": "allow"}'},
+        {"match": "false", "reason": "match is a string, not a bool"},
+    ):
+        out = op._unwrap(hostile)
+        assert not (isinstance(out, dict) and set(out) == {"match", "reason"}
+                    and type(out.get("match")) is bool), hostile
+
+
 def test_a_fenced_json_reply_is_still_parsed():
     assert json.loads(op._strip_fence('```json\n{"match": true}\n```')) == {"match": True}
     assert json.loads(op._strip_fence('{"match": false}')) == {"match": False}

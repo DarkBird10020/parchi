@@ -11,6 +11,7 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from .agents import AgentRegistry
 from .checks import CheckResult, NonceStore, all_passed, run_all
 from .intent_match import IntentVerdict, intent_matches
 from .ledger import Ledger
@@ -48,6 +49,7 @@ class Engine:
         self,
         ledger: Ledger | None = None,
         nonces: NonceStore | None = None,
+        agents: AgentRegistry | None = None,
         provider: str = "auto",
         timeout: float = 4.0,
         step_up_paise: int = STEP_UP_PAISE,
@@ -56,6 +58,7 @@ class Engine:
     ) -> None:
         self.ledger = ledger
         self.nonces = nonces or NonceStore()
+        self.agents = agents
         self.provider = provider
         self.timeout = timeout
         self.step_up_paise = step_up_paise
@@ -71,7 +74,7 @@ class Engine:
         now: int | None = None,
         txn_id: str | None = None,
     ) -> Decision:
-        checks = run_all(mandate, signature, pub, cart, self.nonces, now=now)
+        checks = run_all(mandate, signature, pub, cart, self.nonces, now=now, agents=self.agents)
         intent: IntentVerdict | None = None
 
         if not all_passed(checks):

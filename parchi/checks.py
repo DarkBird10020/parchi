@@ -17,14 +17,17 @@ from typing import Any
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from .agents import AgentRegistry
 from .mandate import (
     CLOCK_SKEW_SECONDS,
     MAX_CART_LINES,
+    MAX_LINE_QUANTITY,
     Cart,
     IntentMandate,
     norm,
     rupees,
     verify,
+    verify_cart,
 )
 
 
@@ -122,6 +125,42 @@ def check_payee(m: IntentMandate, cart: Cart) -> CheckResult:
     )
 
 
+def check_agent(m: IntentMandate, cart: Cart, agents: AgentRegistry | None) -> CheckResult:
+    """If the mandate names an allowed agent, the cart must be signed by that
+    agent's key.
+
+    This check is what turns "my agent did that, I didn't" into a verifiable
+    answer: either the agent's key signed this exact cart, or the claim is
+    repudiable.
+    """
+    if not m.allowed_agent_id:
+        return CheckResult("agent_identity", True, "no agent identity required on this mandate")
+    if agents is None or cart.agent_id != m.allowed_agent_id:
+        return CheckResult(
+            "agent_identity",
+            False,
+            f"cart presented by agent '{cart.agent_id}', but mandate allows '{m.allowed_agent_id}'",
+        )
+    pub = agents.get(cart.agent_id)
+    if pub is None:
+        return CheckResult(
+            "agent_identity",
+            False,
+            f"agent '{cart.agent_id}' is not registered",
+        )
+    if not verify_cart(cart, cart.agent_signature, pub):
+        return CheckResult(
+            "agent_identity",
+            False,
+            f"agent '{cart.agent_id}' signature does not verify for this cart",
+        )
+    return CheckResult(
+        "agent_identity",
+        True,
+        f"agent '{cart.agent_id}' signature verified",
+    )
+
+
 def check_method(m: IntentMandate, cart: Cart) -> CheckResult:
     allowed = {norm(x) for x in m.allowed_methods}
     ok = norm(cart.method) in allowed
@@ -157,6 +196,28 @@ def check_line_items(cart: Cart) -> CheckResult:
                                f"({ln.amount_paise} paise) - a line cannot subtract from the total")
     return CheckResult("line_items", True,
                        f"{len(cart.lines)} line(s), every amount positive and integral")
+
+
+def check_line_quantity(cart: Cart) -> CheckResult:
+    """Every line must have a positive, sane quantity.
+
+    Quantity inflation is mostly an intent question, but a runaway quantity is
+    blocked here so the checkpoint does not depend on the model to catch a cart
+    with 1,000 identical allowed items.
+    """
+    for ln in cart.lines:
+        if not isinstance(ln.quantity, int) or isinstance(ln.quantity, bool):
+            return CheckResult("line_quantity", False,
+                               f"'{ln.description}' has a non-integer quantity")
+        if ln.quantity <= 0:
+            return CheckResult("line_quantity", False,
+                               f"'{ln.description}' has a non-positive quantity")
+        if ln.quantity > MAX_LINE_QUANTITY:
+            return CheckResult("line_quantity", False,
+                               f"'{ln.description}' has quantity {ln.quantity}, "
+                               f"above the {MAX_LINE_QUANTITY} limit")
+    return CheckResult("line_quantity", True,
+                       f"every line quantity is positive and within {MAX_LINE_QUANTITY}")
 
 
 def check_category(m: IntentMandate, cart: Cart) -> CheckResult:
@@ -201,6 +262,7 @@ def run_all(
     cart: Cart,
     store: NonceStore,
     now: int | None = None,
+    agents: AgentRegistry | None = None,
 ) -> list[CheckResult]:
     """Run every deterministic check in order, short-circuiting on first failure.
 
@@ -214,8 +276,10 @@ def run_all(
         lambda: check_payee(m, cart),
         lambda: check_method(m, cart),
         lambda: check_line_items(cart),
+        lambda: check_line_quantity(cart),
         lambda: check_category(m, cart),
         lambda: check_amount(m, cart),
+        lambda: check_agent(m, cart, agents),
         lambda: check_nonce(m, store),
     ):
         r = produce()

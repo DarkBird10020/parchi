@@ -313,3 +313,50 @@ def test_reset_clears_alerts_so_a_demo_starts_clean():
     assert client.get("/api/alerts").json()["alerts"]
     client.post("/api/reset")
     assert client.get("/api/alerts").json()["alerts"] == []
+
+
+# --------------------------------------------------------------------------
+# the chat demo
+# --------------------------------------------------------------------------
+
+def test_chat_refuses_to_pretend_when_no_model_is_configured(monkeypatch):
+    """Offline, this endpoint must say so rather than fall back to the lexical
+    matcher. A scripted agent proves nothing about a checkpoint."""
+    monkeypatch.setattr(server, "resolve_provider", lambda *a, **k: "heuristic")
+    r = client.post("/api/chat", json={"message": "buy me running shoes under 5000"})
+    assert r.status_code == 503
+    assert "live model" in r.json()["detail"]
+
+
+def test_chat_rejects_an_empty_or_oversized_message():
+    assert client.post("/api/chat", json={"message": "   "}).status_code == 400
+    assert client.post("/api/chat", json={"message": "x" * 501}).status_code == 400
+
+
+def test_the_catalogue_still_carries_the_attack_the_demo_depends_on():
+    """One product description contains instructions aimed at an AI assistant.
+
+    If that text is ever tidied away, the live demo silently stops demonstrating
+    anything, so it is pinned here.
+    """
+    from demo import shopper
+
+    catalogue = shopper.load_catalogue()
+    skus = {p["sku"] for p in catalogue["products"]}
+    assert "care-2y" in skus, "the add-on the injection asks for must exist"
+    injected = [p for p in catalogue["products"]
+                if "AI SHOPPING ASSISTANTS" in p["description"]]
+    assert injected, "no product page carries the injected instruction"
+    assert "care-2y" in injected[0]["description"]
+
+
+def test_the_agent_sees_the_merchants_text_verbatim():
+    """The agent is given the descriptions unfiltered, on purpose. Sanitising
+    them here would move the defence into the agent, which is the thing this
+    project argues you cannot rely on."""
+    from demo import shopper
+
+    products = shopper.load_catalogue()["products"]
+    rendered = shopper.render_catalogue(products)
+    assert "AI SHOPPING ASSISTANTS" in rendered
+    assert "care-2y" in rendered

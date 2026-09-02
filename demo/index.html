@@ -308,12 +308,33 @@
            font-size:13px; letter-spacing:.02em}
 .toast .tx{margin-top:5px; font-size:13px; line-height:1.45; color:var(--ink-2)}
 .toast .tm{margin-top:7px; font:11px/1.5 var(--mono); color:var(--ink-3);
-           word-break:break-word}
+           word-break:break-word; white-space:pre-wrap}
 .toast .tc{margin-left:auto; border:0; background:none; cursor:pointer;
            font-size:17px; line-height:1; color:var(--ink-4); padding:0 2px}
 .toast .tc:hover{color:var(--ink)}
 @keyframes slidein{from{opacity:0; transform:translateX(14px)} to{opacity:1; transform:none}}
 @media (prefers-reduced-motion: reduce){ .toast{animation:none} }
+
+/* The chat demo. A customer sentence goes in, a checked purchase comes out. */
+.chatwrap{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start}
+@media (max-width:960px){ .chatwrap{grid-template-columns:1fr} }
+.chatbox{border:1px solid var(--rule); background:var(--card); border-radius:3px;
+         display:flex; flex-direction:column; min-height:330px}
+.chatlog{flex:1; padding:15px; display:flex; flex-direction:column; gap:11px;
+         overflow-y:auto; max-height:340px}
+.msg{max-width:86%; padding:9px 12px; border-radius:3px; font-size:14px; line-height:1.5}
+.msg.you{align-self:flex-end; background:var(--ink); color:var(--paper)}
+.msg.bot{align-self:flex-start; background:var(--paper); border:1px solid var(--rule)}
+.msg.sys{align-self:center; font:11px var(--mono); color:var(--ink-3); background:none;
+         border:0; text-align:center}
+.chatform{display:flex; gap:8px; border-top:1px dashed var(--rule); padding:11px}
+.chatform input{flex:1; border:1px solid var(--rule); background:var(--paper);
+                border-radius:3px; padding:9px 11px; font:14px var(--serif); color:var(--ink)}
+.chatform input:focus{outline:2px solid var(--ink-4); outline-offset:1px}
+.chips{display:flex; flex-wrap:wrap; gap:6px; padding:0 11px 11px}
+.chip{border:1px solid var(--rule); background:var(--paper); border-radius:99px;
+      padding:5px 10px; font:11.5px var(--mono); color:var(--ink-2); cursor:pointer}
+.chip:hover{border-color:var(--ink-4); color:var(--ink)}
 </style>
 </head>
 <body>
@@ -417,6 +438,47 @@
   </div>
 </section>
 
+<section id="chat">
+  <div class="wrap">
+    <div class="sechead">Live &middot; the agent is a real model reading this shop's product pages</div>
+    <h2 class="h2">Talk to the agent.</h2>
+    <p class="lede" style="max-width:70ch">
+      Type what you want. One model turn reads your sentence and becomes the slip
+      you sign. A second model turn does the shopping, reading the merchant's own
+      product text. Parchi judges the cart that comes back. The agent has no
+      defences of its own, on purpose.
+    </p>
+
+    <div class="chatwrap">
+      <div class="chatbox">
+        <div class="chatlog" id="chatlog" aria-live="polite">
+          <div class="msg sys">say what you want to buy</div>
+        </div>
+        <div class="chips">
+          <button class="chip" data-say="buy me running shoes under 5000">running shoes under 5000</button>
+          <button class="chip" data-say="get me the puma flyer runner, under 5000">the puma flyer runner</button>
+          <button class="chip" data-say="order a weekly grocery basket, up to 4000">weekly groceries</button>
+        </div>
+        <form class="chatform" id="chatform">
+          <label class="sr" for="chatinput">Message the shopping assistant</label>
+          <input id="chatinput" autocomplete="off" placeholder="buy me running shoes under 5000" />
+          <button class="btn primary" type="submit" id="chatsend">Send</button>
+        </form>
+      </div>
+
+      <div class="panel">
+        <div class="panelhead">What Parchi decided <span class="r" id="chatVerdictPill"></span></div>
+        <div class="pad">
+          <p class="reason" id="chatReason" style="font-size:17px">
+            Nothing sent yet. The checkpoint runs on whatever the agent puts in the cart.
+          </p>
+          <div class="amounts" id="chatAmounts"></div>
+        </div>
+        <div class="checks" id="chatChecks"></div>
+      </div>
+    </div>
+  </div>
+</section>
 <section id="demo">
   <div class="wrap">
     <div class="demohead">
@@ -646,9 +708,10 @@ function notify(kind, title, text, mono){
     (mono ? `<div class="tm">${esc(mono)}</div>` : "");
   box.querySelector(".tc").addEventListener("click", () => box.remove());
   $("#toasts").appendChild(box);
-  if(kind !== "alarm" && kind !== "money"){
-    setTimeout(() => box.remove(), 6000);
-  }
+  // Five seconds, whatever the severity. The server keeps the alert either way,
+  // so nothing is lost when this disappears - #alertStrip and GET /api/alerts
+  // are the record, this is only the nudge.
+  setTimeout(() => box.remove(), 5000);
 }
 
 // A refused purchase is only useful if the person whose money it is finds out
@@ -688,6 +751,70 @@ async function loadAlerts(){
       + top.summary + " (" + top.severity + ", sent to " + top.delivered.join(", ") + ")";
   } catch(e){ /* the strip is informational; never break the page for it */ }
 }
+// ---------------------------------------------------------------- chat demo
+function chatSay(kind, text){
+  const el = document.createElement("div");
+  el.className = "msg " + kind;
+  el.textContent = text;
+  $("#chatlog").appendChild(el);
+  $("#chatlog").scrollTop = $("#chatlog").scrollHeight;
+  return el;
+}
+
+async function sendChat(message){
+  const input = $("#chatinput");
+  const send = $("#chatsend");
+  input.value = "";
+  input.disabled = send.disabled = true;
+  chatSay("you", message);
+  const thinking = chatSay("sys", "the agent is shopping...");
+  try {
+    const r = await api("/api/chat", {
+      method:"POST", headers:{"content-type":"application/json"},
+      body: JSON.stringify({ message })
+    });
+    thinking.remove();
+    chatSay("bot", r.reply);
+
+    if(r.stage !== "decided"){
+      $("#chatReason").textContent = "No purchase was attempted.";
+      $("#chatVerdictPill").textContent = "";
+      $("#chatAmounts").innerHTML = "";
+      $("#chatChecks").innerHTML = "";
+      return;
+    }
+
+    const d = r.decision;
+    chatSay("sys", "cart: " + r.cart.lines.map(l =>
+      l.description + (l.quantity > 1 ? " x" + l.quantity : "")).join(", ")
+      + "  =  " + r.display.total);
+
+    $("#chatVerdictPill").textContent = d.verdict.replace("_", "-");
+    $("#chatReason").textContent = d.reason;
+    $("#chatAmounts").innerHTML =
+      '<div><div class="k">Cart total</div><div class="v">' + esc(r.display.total) + '</div></div>' +
+      '<div><div class="k">Mandate cap</div><div class="v">' + esc(r.display.cap) + '</div></div>' +
+      '<div><div class="k">What you authorised</div><div class="v said">' +
+        esc(r.mandate.prompt_playback) + '</div></div>';
+    $("#chatChecks").innerHTML = d.checks.map(checkRow).join("") + intentRow(d.intent);
+    notifyVerdict("chat", d);
+    if(d.verdict === "ALLOW"){
+      notify("good", "Order placed",
+        "The agent bought what you asked for, at " + r.display.total + ".", null);
+    }
+    loadLedger();
+    loadAlerts();
+  } catch(error){
+    thinking.remove();
+    chatSay("sys", error.message);
+    notify("alarm", "The assistant could not answer", error.message, null);
+  } finally {
+    input.disabled = send.disabled = false;
+    input.focus();
+  }
+}
+
+
 async function settleAuthorization(){
   if(!currentAuthorization) return;
   const btn = $("#btnSettle");
@@ -946,6 +1073,14 @@ $("#btnVerify").addEventListener("click", loadLedger);
 $("#btnApprove").addEventListener("click", approveStepUp);
 $("#btnPay").addEventListener("click", startPayment);
 $("#btnSettle").addEventListener("click", settleAuthorization);
+$("#chatform").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const v = $("#chatinput").value.trim();
+  if(v) sendChat(v);
+});
+document.querySelectorAll(".chip").forEach(c =>
+  c.addEventListener("click", () => sendChat(c.dataset.say)));
+
 $("#btnTamper").addEventListener("click", async () => {
   const r = await fetch("/api/tamper", {method:"POST"});
   if(!r.ok){
@@ -964,7 +1099,8 @@ $("#btnTamper").addEventListener("click", async () => {
     + (raised ? " Support has been alerted on the server, not just in this tab."
               : ""),
     ((t.chain && t.chain.detail) ? t.chain.detail : "chain broken")
-      + (raised ? "  |  alert " + raised.id + " -> " + raised.delivered.join(", ") : ""));
+      + (t.record_hash ? "\nhash " + t.record_hash : "")
+      + (raised ? "\nalert " + raised.id + " -> " + raised.delivered.join(", ") : ""));
   loadLedger();
   loadAlerts();
 });

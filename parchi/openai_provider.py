@@ -287,62 +287,7 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
     this module's whole point, so a rejection falls back to json_object once and
     is remembered for the process.
     """
-    budget().spend()
-    body = {
-        "model": model or resolve_model(),
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 400,
-        "temperature": 0,
-        "response_format": _response_format(),
-    }
-    data = json.dumps(body).encode()
-    headers = {
-        "Authorization": "Bearer " + api_key(),
-        "Content-Type": "application/json",
-        "Connection": "keep-alive",
-    }
-
-    # Two attempts, and only ever for a broken *transport*. A keep-alive socket
-    # that the far end closed between calls fails on write, before the request is
-    # processed, so reconnecting is not a second judgement - it is the first one,
-    # sent down a live socket. An HTTP status is never retried: a 429 or a 500 is
-    # the endpoint's answer, and this call sits in front of a payment.
-    last = None
-    for attempt in (1, 2):
-        try:
-            conn, prefix = _connection(timeout)
-            conn.request("POST", prefix + "/chat/completions", body=data, headers=headers)
-            resp = conn.getresponse()
-            raw = resp.read()
-            if resp.status in (400, 422) and "json_schema" in json.dumps(body):
-                # This endpoint does not implement structured outputs. Remember
-                # that, drop to json_object, and try once more - the alternative
-                # is a provider that is permanently unusable for a portability
-                # feature that was supposed to be optional.
-                global _SUPPORTS_JSON_SCHEMA
-                _SUPPORTS_JSON_SCHEMA = False
-                body["response_format"] = {"type": "json_object"}
-                data = json.dumps(body).encode()
-                _drop_connection()
-                continue
-            if resp.status != 200:
-                raise RuntimeError(f"HTTP {resp.status}")
-            if _SUPPORTS_JSON_SCHEMA is None and "json_schema" in json.dumps(body):
-                _SUPPORTS_JSON_SCHEMA = True
-            payload = json.loads(raw)
-            break
-        except RuntimeError:
-            _drop_connection()
-            raise
-        except Exception as exc:
-            last = exc
-            _drop_connection()
-            if attempt == 2:
-                raise RuntimeError(redact(f"{type(exc).__name__}: {exc}")) from None
-    else:  # pragma: no cover - the loop always breaks or raises
-        raise RuntimeError(redact(str(last)))
-
-    content = payload["choices"][0]["message"]["content"]
+    content = _request(prompt, timeout, model, _response_format(), max_tokens=400)
     parsed = _unwrap(json.loads(_strip_fence(content)))
     if not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}:
         raise RuntimeError("model returned JSON outside the match/reason schema")
@@ -394,3 +339,83 @@ def _strip_fence(text: str) -> str:
         if t.rstrip().endswith("```"):
             t = t.rstrip()[:-3]
     return t.strip()
+
+
+def _request(prompt: str, timeout: float, model: str | None,
+             response_format: dict[str, Any], max_tokens: int) -> str:
+    """POST one completion and return the raw message content.
+
+    Everything fragile lives here and only here: the spend budget, the keep-alive
+    connection, the reconnect-once-on-transport-error rule, key redaction, and the
+    fallback for endpoints that do not implement json_schema.
+    """
+    budget().spend()
+    body = {
+        "model": model or resolve_model(),
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": max_tokens,
+        "temperature": 0,
+        "response_format": response_format,
+    }
+    data = json.dumps(body).encode()
+    headers = {
+        "Authorization": "Bearer " + api_key(),
+        "Content-Type": "application/json",
+        "Connection": "keep-alive",
+    }
+
+    # Two attempts, and only ever for a broken *transport*. A keep-alive socket
+    # that the far end closed between calls fails on write, before the request is
+    # processed, so reconnecting is not a second judgement, it is the first one
+    # sent down a live socket. An HTTP status is never retried: a 429 or a 500 is
+    # the endpoint's answer, and this call sits in front of a payment.
+    last = None
+    for attempt in (1, 2):
+        try:
+            conn, prefix = _connection(timeout)
+            conn.request("POST", prefix + "/chat/completions", body=data, headers=headers)
+            resp = conn.getresponse()
+            raw = resp.read()
+            if resp.status in (400, 422) and "json_schema" in json.dumps(body):
+                # This endpoint does not implement structured outputs. Remember
+                # that, drop to json_object, and try once more: the alternative is
+                # a provider that is permanently unusable for a portability
+                # feature that was supposed to be optional.
+                global _SUPPORTS_JSON_SCHEMA
+                _SUPPORTS_JSON_SCHEMA = False
+                body["response_format"] = {"type": "json_object"}
+                data = json.dumps(body).encode()
+                _drop_connection()
+                continue
+            if resp.status != 200:
+                raise RuntimeError(f"HTTP {resp.status}")
+            if _SUPPORTS_JSON_SCHEMA is None and "json_schema" in json.dumps(body):
+                _SUPPORTS_JSON_SCHEMA = True
+            payload = json.loads(raw)
+            break
+        except RuntimeError:
+            _drop_connection()
+            raise
+        except Exception as exc:
+            last = exc
+            _drop_connection()
+            if attempt == 2:
+                raise RuntimeError(redact(f"{type(exc).__name__}: {exc}")) from None
+    else:  # pragma: no cover - the loop always breaks or raises
+        raise RuntimeError(redact(str(last)))
+    return payload["choices"][0]["message"]["content"]
+
+
+def complete_json(prompt: str, timeout: float, model: str | None = None,
+                  schema: dict[str, Any] | None = None,
+                  max_tokens: int = 900) -> Any:
+    """A JSON completion with no opinion about the shape that comes back.
+
+    Deliberately NOT used for the intent check. That call decides whether money
+    moves, and its schema is enforced in exactly one place on purpose.
+    """
+    fmt = ({"type": "json_schema",
+            "json_schema": {"name": "reply", "strict": True, "schema": schema}}
+           if schema and _SUPPORTS_JSON_SCHEMA is not False
+           else {"type": "json_object"})
+    return json.loads(_strip_fence(_request(prompt, timeout, model, fmt, max_tokens)))

@@ -22,6 +22,8 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from pydantic import BaseModel
 
+from demo import shopper
+from parchi import openai_provider
 from parchi.agents import AgentRegistry
 from parchi.checks import CheckResult, NonceStore, run_all
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Decision, Engine
@@ -29,6 +31,7 @@ from parchi.evidence import build_pack
 from parchi.intent_match import resolve_provider
 from parchi.ledger import Ledger, verify_chain
 from parchi.mandate import (
+    MAX_CART_LINES,
     STEP_UP_PAISE,
     Cart,
     CartLine,
@@ -792,6 +795,108 @@ def settle(req: SettleRequest):
     }
 
 
+class ChatRequest(BaseModel):
+    message: str
+    session_id: str = "demo"
+
+
+@app.post("/api/chat")
+def chat(req: ChatRequest):
+    """A customer sentence in, a checked purchase out.
+
+    Two model turns and one checkpoint. The first turn reads what the human wants
+    and becomes the mandate they sign. The second turn is the agent: it reads the
+    shop's product pages, including whatever the merchant wrote in them, and picks
+    the cart. Parchi then judges that cart against the signature from turn one.
+
+    Nothing here defends the agent. The agent is supposed to be fallible; that is
+    the premise of the whole repository.
+    """
+    message = req.message.strip()
+    if not message:
+        raise HTTPException(400, "say something to the assistant")
+    if len(message) > 500:
+        raise HTTPException(400, "message too long")
+
+    catalogue = shopper.load_catalogue()
+    products = catalogue["products"]
+    categories = sorted({p["category"] for p in products})
+    provider = resolve_provider("auto")
+    if provider in ("heuristic", "off"):
+        raise HTTPException(
+            503,
+            "the chat demo needs a live model. Set PARCHI_OPENAI_API_KEY (or "
+            "ANTHROPIC_API_KEY) and restart, or use the scenario buttons, which "
+            "run entirely offline.",
+        )
+
+    # Turn one: what is the human actually authorising?
+    try:
+        intent = openai_provider.complete_json(
+            shopper.intent_prompt(message, categories),
+            timeout=DEMO_TIMEOUT, schema=shopper.INTENT_SCHEMA,
+        )
+    except Exception as exc:
+        raise HTTPException(502, openai_provider.redact(f"assistant unavailable: {exc}")[:200]) from None
+
+    if not intent.get("understood"):
+        return {"stage": "chat", "reply": intent.get("reply", "Tell me what to buy."),
+                "mandate": None, "cart": None, "decision": None}
+
+    cap_rupees = max(1, min(int(intent["cap_rupees"]), 10_00_000))
+    allowed = tuple(c for c in intent["categories"] if c in categories) or (categories[0],)
+    mandate = new_mandate(
+        "usr_demo", catalogue["shop"]["id"], ("upi",), cap_rupees * 100,
+        allowed, str(intent["playback"])[:120], allowed_agent_id=AGENT_ID,
+    )
+    signature = sign(mandate, KEY)
+
+    # Turn two: the agent shops, reading the merchant's own text.
+    try:
+        picked = openai_provider.complete_json(
+            shopper.agent_prompt(intent["playback"], cap_rupees, products),
+            timeout=DEMO_TIMEOUT, schema=shopper.CART_SCHEMA,
+        )
+    except Exception as exc:
+        raise HTTPException(502, openai_provider.redact(f"assistant unavailable: {exc}")[:200]) from None
+
+    by_sku = {p["sku"]: p for p in products}
+    lines = []
+    for item in picked.get("items", [])[:MAX_CART_LINES]:
+        product = by_sku.get(str(item.get("sku")))
+        if product is None:
+            continue          # a hallucinated SKU is not a purchase
+        quantity = int(item.get("quantity", 1))
+        lines.append(CartLine(product["title"], product["category"],
+                              int(product["price_paise"]), max(1, quantity)))
+    if not lines:
+        return {"stage": "chat",
+                "reply": "I could not find anything in the catalogue for that.",
+                "mandate": mandate.to_dict(), "cart": None, "decision": None}
+
+    cart = _sign_demo_cart(Cart(tuple(lines), "upi", catalogue["shop"]["id"],
+                                agent_id=AGENT_ID))
+
+    txn_id = "txn_" + uuid.uuid4().hex[:10]
+    decision = engine.authorize(mandate, signature, PUB, cart, txn_id=txn_id)
+    if decision.verdict != BLOCK:
+        remember_authorization(txn_id, mandate, signature, cart, decision)
+
+    return {
+        "stage": "decided",
+        "reply": picked.get("reply", "Added to your cart."),
+        "authorization_id": txn_id,
+        "state": "PENDING" if decision.verdict == STEP_UP else decision.verdict,
+        "decision": decision.to_dict(),
+        "mandate": mandate.to_dict(),
+        "cart": cart.to_dict(),
+        "display": {"total": rupees(cart.total_paise),
+                    "cap": rupees(mandate.max_amount_paise)},
+        "evidence": build_pack(mandate, signature, cart, decision, PUB_HEX,
+                               ledger_path=LEDGER_PATH),
+        "shop": catalogue["shop"]["name"],
+    }
+
 @app.get("/api/alerts")
 def list_alerts(limit: int = 20):
     """What a support console would poll.
@@ -844,7 +949,10 @@ def tamper():
     with open(LEDGER_PATH, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
     chain = check_chain_and_alert()
+    # The hash is the point. It is what the record claimed about itself, and it
+    # is the thing that no longer matches now the body has been edited.
     return {"tampered_record": idx + 1, "chain": chain,
+            "record_hash": rec.get("hash"),
             "alerts": [a for a in alerts if a["kind"] == "ledger_tampered"][-1:]}
 
 

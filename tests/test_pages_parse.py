@@ -215,3 +215,34 @@ def test_the_console_ships_empty_and_fills_itself_once_signed_in():
     html = _read("demo/console.html")
     assert "/api/console/feed" in html, "the console never fetches its feed"
     assert "X-Parchi-Console-Session" in html, "the console sends no session header"
+
+
+def test_the_hero_states_the_real_number_of_attack_patterns():
+    """The landing page advertises a count, and it had drifted to 31 of 48.
+
+    It is the first number a reviewer reads and the easiest one to leave
+    behind, so it is read out of the suite that defines it rather than
+    trusted. The count comes from the registry in tests/test_attacks.py, the
+    same registry the CI step runs.
+    """
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "_attacks_for_count", ROOT / "tests" / "test_attacks.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    real = len(module.PATTERNS)
+
+    html = _read("demo/index.html")
+    stated = re.search(r"<span>(\d+) attack patterns</span>", html)
+    assert stated, "the hero no longer advertises an attack-pattern count"
+    assert int(stated.group(1)) == real, (
+        f"the landing page says {stated.group(1)} attack patterns, "
+        f"the suite defines {real}")
+
+    # And the same number again in the results panel, which had drifted
+    # separately to "27 + 1".
+    panel = re.search(r'Attack patterns handled</div>\s*<div class="v">(\d+)', html)
+    assert panel, "the results panel no longer states an attack-pattern count"
+    assert int(panel.group(1)) == real, (
+        f"the results panel says {panel.group(1)}, the suite defines {real}")

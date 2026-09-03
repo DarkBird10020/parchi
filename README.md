@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-144%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-296%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -50,8 +50,11 @@ can prove what was authorised when a customer says *"my agent did that, I didn't
 ## Contents
 
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Results](#results) ·
-[The demo](#the-demo) · [Adversarial testing](#adversarial-testing) ·
-[The slip](#the-slip) · [Lying about the price](#lying-about-the-price) ·
+[The demo](#the-demo) · [The operations console](#the-operations-console) ·
+[Patterns one cart cannot show](#the-patterns-one-cart-cannot-show) ·
+[The AI escalation](#the-ai-escalation-and-the-ten-minute-block) ·
+[Adversarial testing](#adversarial-testing) · [The slip](#the-slip) ·
+[Lying about the price](#lying-about-the-price) ·
 [Why this and not the alternative](#why-this-and-not-the-obvious-alternative) ·
 [Repo layout](#repo-layout) · [Known limitations](#known-limitations)
 
@@ -236,11 +239,17 @@ any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLO
 python demo/server.py     # → http://127.0.0.1:8000
 ```
 
-Fourteen scenarios, each a real `POST /api/authorize` (the swarm one ends with
-the account itself blocked for ten minutes): Every check and its reason is
-shown, the evidence pack is the JSON a merchant would send to an issuer, and the
-ledger pane verifies its own hash chain, with a **Tamper** button, because showing
-it beats claiming it.
+Fifteen scenarios, each a real `POST /api/authorize`. Every check and its reason
+is shown, the evidence pack is the JSON a merchant would send to an issuer, and
+the ledger pane verifies its own hash chain, with a **Tamper** button, because
+showing it beats claiming it.
+
+<img src="docs/images/checkpoint.jpg" alt="The checkpoint refusing an injected add-on: every rule passes, the intent check catches it, and the evidence pack is on the right" width="100%">
+
+That is the injection scenario. The cart is the right category, under the cap, on
+an unspent slip, and every price is the shop's own, so all twelve rules pass. The
+product page talked the agent into a protection plan the human never mentioned,
+and the one model call is what notices.
 
 Three of those moments raise a notification on screen, because a verdict nobody
 sees is not a control:
@@ -250,6 +259,7 @@ sees is not a control:
 | The agent buys outside the approved categories | *"The agent tried to buy something outside the categories you approved"*, with the engine's own reason underneath |
 | Someone edits a past verdict in the log | *"Audit log has been altered"*, naming the record whose hash stopped matching |
 | The merchant ships something else | *"Refund action required"* until Razorpay confirms processing |
+
 Those clear themselves after five seconds, so the **bell in the header** is where
 they stay readable. It carries an unread count, opens a history of everything
 raised, worst first, and each entry shows the severity, the class of attack, the
@@ -282,35 +292,58 @@ service decision, and it is written into the hash chain like any other verdict.
 ### The operations console
 
 Alerts are no use if the only person who sees them is the customer whose purchase
-was refused. `/console` is the internal view: every refusal across every merchant
-on this checkpoint, worst first, with the live state of the audit chain and a
-breakdown of what is being attempted.
+was refused. `/console` is the internal view: every refusal on this checkpoint,
+worst first, with the live state of the audit chain, who each alert was about, and
+what is currently being attempted.
+
+<img src="docs/images/console.jpg" alt="The operations console: an agent swarm confirmed by the AI adjudicator, the account cooled for ten minutes, and a release button" width="100%">
+
+That screenshot is one incident. Three registered agents presented slips for the
+same payer, every deterministic check passed for each of them, the adjudicator was
+asked what the pattern meant, and it answered `credential farm` at 90% confidence.
+The account is cooled for ten minutes and a person can lift it from that panel.
+
+Set up an operator once, then run the server:
 
 ```bash
-PARCHI_CONSOLE_TOKEN=... python demo/server.py    # then open /console
+python -m parchi.console_setup --write     # asks for an email and a password
+python demo/server.py                      # then open /console
 ```
 
-Four things about how it is gated, because a fraud console is exactly the page an
-attacker would most like to read:
+The password is never typed into a file. `console_setup` hashes it with scrypt
+and writes only the hash, because this repo is public and a password in a tracked
+file is a published password.
 
-- **Unset means off, not open.** With no token configured the API returns 503. An
-  internal console that ships world-readable by default hands an attacker the map
-  of which of their attempts were noticed.
-- **The page shell loads without a token; none of its data does.** That keeps the
-  token out of the URL, where it would end up in browser history, referrer headers
-  and every proxy log in between. The token goes in a header, and the page fetches
-  its own data after sign-in.
-- **Constant-time comparison.** A token checked with `==` leaks its own prefix to
-  anyone willing to time the responses.
-- **The token lives in `sessionStorage`**, so it does not outlive the tab.
+A fraud console is exactly the page an attacker would most like to read, so:
+
+| | |
+|:--- |:--- |
+| Unset means **off**, not open | With no operator and no token configured the API returns 503. A console that ships world-readable hands an attacker the map of which of their attempts were noticed. |
+| The shell loads, the data does not | The page is served to anyone; every byte of content on it needs a session. That keeps credentials out of the URL, where they end up in history, referrers and proxy logs. |
+| scrypt, and a lockout | Five wrong attempts locks that account for five minutes and raises a critical alert. The lockout counts **per account**, since an attacker picks the connection but not the account. |
+| Same answer either way | A wrong email and a wrong password fail identically. Different messages tell an attacker which addresses exist. |
+| Sessions die with the tab | An eight-hour TTL server-side, `sessionStorage` client-side, and sign-out invalidates immediately. |
+
+Every consequential action is attributed. Acknowledging an alert records who saw
+it and when, and the alert stays in the feed, because acknowledgement is
+attribution rather than deletion. Lifting a cooldown is itself logged as an alert
+naming the operator who lifted it: overruling the adjudicator on a live account is
+the most consequential thing anyone does on this page.
 
 Opening the console verifies the ledger, so a tampered log is found by whoever
 looks next rather than by whoever clicks Tamper in the demo.
 
-It is a shared token, not an identity. Every alert is attributable to a
-transaction but not to the person reading it, and a real deployment puts this
-behind the company IdP before anyone relies on it. That is stated on the page
+**AI gate: ON/OFF** is on the same band. Off stops the model calls and the
+automatic cooldowns; the deterministic alerts keep flowing, because cheaper must
+not mean blind. The person paying the token bill is the person who can cap it.
+
+**Clear all** empties the feed, attributed, with the ledger untouched. **Sound**
+and **Re-nag** are per-browser choices, and re-nag is off by default because one
+chime per new critical already carries the news.
+
+A real deployment puts this behind the company IdP. That is stated on the page
 itself rather than left for someone to discover.
+
 ### Who gets told
 
 A popup tells whoever happens to be looking, which on a payments system at 3am is
@@ -349,55 +382,86 @@ about exactly one of them. Every refusal is classified before it is reported:
 | Attack confirmed: account blocked for 10 minutes | `account_cooled` | critical |
 | An attempt from a cooling account | `cooldown_block` | high |
 
-The last four come from a second layer: the per-cart checks judge one cart
-against one mandate, and `parchi/behavior.py` asks what the *sequence* of
-attempts says. The burst watcher counts **all** attempts from one actor,
-allowed ones included, because a bot enumerating stock or testing stolen
-instruments wants volume and gets it one correct verdict at a time. The coupon
-watcher counts how a code is used across mandates, refused attempts included.
-And drift is a cross-record view no single cart can produce: a code worth
-Rs 100 claimed at Rs 100 is verified true, the same code claimed at Rs 900 in
-another cart is verified false, and both records are individually correct.
-What nobody notices is that one code paying two different amounts is an
-enumeration pattern against the coupon rail. Every threshold fires once per
-incident, not once per attempt, and none of these detectors can change a
-verdict: they name what happened, on the same enforcement/detection split as
-everything above.
+Two of those are worth dwelling on. **`probing`** fires when the same actor is
+refused five times in a minute: every individual verdict was correct and no money
+moved, which is precisely why nobody would otherwise notice someone mapping where
+the wall is. And **`prompt_injection`** separates a merchant attacking the agent
+from an agent going astray on its own, which are the same `BLOCK` and completely
+different incidents.
 
-### Who is buying: shopper accounts
+The classifier never decides anything. It reads a verdict that already happened,
+so a wrong label costs an alert rather than a payment. That is what lets the
+detection be heuristic while the enforcement is not.
 
-Every slip used to be signed by one shared payer, `usr_demo`, a ghost. Now the
-main page has **Sign in / Create account**: an email and a password create a
-real account with its own Ed25519 keypair, held in memory only (the store keeps
-the public key in `demo/users.jsonl`; the private half is regenerated on
-restart, the same trade the demo's own keys already make). Whatever you do
-while signed in, scenario buttons or the chat, the mandate on screen carries
-your payer id and is signed by *your* key, spent against your cap. The
-adjudicator's cooldown keys on the signed-in account too: a block lands on the
-account that was attacked, not on a ghost everyone shares. Password hashing is
-the same scrypt the console login uses; sessions are opaque tokens with a
-seven-day TTL.
+An expired slip is `info` on purpose. Paging a human for a slow agent is how they
+learn to ignore the `critical` that matters.
+
+Set `PARCHI_ALERT_WEBHOOK` and each one is posted outward as well. That delivery
+is fire-and-forget with a 3 second timeout, because monitoring that can take down
+the thing it monitors is worse than no monitoring, and there is a test asserting a
+dead webhook still returns a successful refund.
+
+### The patterns one cart cannot show
+
+The last seven rows of that table come from a second layer. The per-cart checks
+judge one cart against one mandate; `parchi/behavior.py` asks what the *sequence*
+of attempts says. Nothing in it can change a verdict. It decides who hears about
+one.
+
+**Velocity.** The burst watcher counts every attempt from one actor, allowed ones
+included. A bot enumerating stock or testing stolen instruments wants volume, and
+it gets that volume one individually correct verdict at a time, which is exactly
+why nothing else would notice.
+
+**Coupon farming.** A code sweeping across many mandates looks identical to a
+popular code right up until you count mandates. A store-wide sale is many payers
+on one code; farming is one payer, mandate after mandate.
+
+**Discount drift.** A code worth Rs 100 claimed at Rs 100 is verified true. The
+same code claimed at Rs 900 in another cart is verified false. Both records are
+individually correct, and no single cart can see that one code is paying two
+different amounts, which is enumeration of the coupon rail.
+
+Every threshold fires once per incident rather than once per attempt, so a
+standing burst is one alert and not one per click.
+
+### Who is buying
+
+Every slip used to be signed by `usr_demo`, a ghost. The main page now has
+**Sign in / Create account**, and an account comes with its own Ed25519 keypair.
+Signed in, the mandate on screen carries your payer id and is signed by your key,
+spent against your cap, whether you drive it from the scenario buttons or the
+chat.
+
+The cooldown keys on that account too, so a block lands on the account that was
+attacked rather than on a ghost everyone shares. Passwords use the same scrypt as
+the console. Private keys live in memory only and are regenerated on restart, the
+same trade the demo's own keys already make; `demo/users.jsonl` keeps the public
+half, and the file is rewritten when a key is minted so the stored key always
+verifies what the process is signing.
 
 ### The AI escalation, and the ten-minute block
 
-Two of those shapes are never accidents, so they go one step further: attempts
-rebuilt after a refusal, and **one payer presented by many agent credentials**:
-a swarm. Agents are registered credentials, so many faces on one wallet is
-not a household sharing a login; it is a hijacked payer key being worked by a
-farm. For exactly these, the checkpoint asks a model to read the situation:
-cart contents, the human's actual request, the detector evidence and the swarm
-roster. It answers one question a counter cannot: *is this account genuinely
-under attack?*
+Two shapes are never accidents: an attempt rebuilt after a refusal, and **one
+payer presented by many agent credentials**. Agents here are registered
+credentials, so many faces on one wallet is not a household sharing a login. It is
+a hijacked payer key being worked by a farm.
 
-When the adjudicator says yes at 0.6+ confidence, the account is blocked for
-**10 minutes**: enforced as a deterministic check before anything else runs,
-covering every agent that could present that payer's slips. The console shows
-the block with the AI's stated reason, its model and its confidence, and a
-**Release early** button, because an automatic block nobody can undo is a
-lockout waiting for 3am. If no provider is configured the ratchet fails open
-and the alerts stand on their own. The gate is deliberately *not* in the
-payment path: a wrong opinion costs a cooldown a human releases, never a
-silently refused customer.
+For those, the checkpoint asks a model to read the situation, cart contents, the
+human's actual request, the detector evidence and the swarm roster, and answer the
+question a counter cannot: *is this account genuinely under attack?*
+
+A confident yes cools the account for **10 minutes**, enforced as a deterministic
+check before anything else runs, covering every agent that could present that
+payer's slips. A person can lift it from the console, because an automatic block
+nobody can undo is a lockout waiting for 3am.
+
+It stays out of the payment path in both senses that matter. It cannot change a
+verdict, and it runs on its own thread after the decision is made, so a slow model
+costs nobody a wait. One incident is reviewed once, not once per attempt. With no
+provider configured it fails open and the deterministic alerts stand on their own.
+The worst a wrong answer here can do is cost someone ten minutes that a human can
+give back.
 
 #### The adjudicator is scored, because it can lock out a real customer
 
@@ -441,32 +505,7 @@ answering is not adjudicating, so `DEFAULT_GUARD_MODEL` is the one that is
 measured, available and fast. `PARCHI_GUARD_MODEL` pins any other; score it
 with the command above before trusting it.
 
-The operator caps the bill from the console band. **AI gate: ON/OFF** stops the
-adjudicator itself. Detector alerts keep flowing either way (a cheaper
-operation must not be a blinder); reviews and automatic cooldowns stop. An
-account already cooling down is never re-adjudicated, so a ten-attempt swarm
-is one review, not ten. **Clear all** empties the feed, attributed and with the
-ledger untouched. **Sound** and **Re-nag** (default off, since one chime per new
-critical already carries the news) are per-browser choices.
-
-Two of those are worth dwelling on. **`probing`** fires when the same actor is
-refused five times in a minute: every individual verdict was correct and no money
-moved, which is precisely why nobody would otherwise notice someone mapping where
-the wall is. And **`prompt_injection`** separates a merchant attacking the agent
-from an agent going astray on its own, which are the same `BLOCK` and completely
-different incidents.
-
-The classifier never decides anything. It reads a verdict that already happened,
-so a wrong label costs an alert rather than a payment. That is what lets the
-detection be heuristic while the enforcement is not.
-
-An expired slip is `info` on purpose. Paging a human for a slow agent is how they
-learn to ignore the `critical` that matters.
-
-Set `PARCHI_ALERT_WEBHOOK` and each one is posted outward as well. That delivery
-is fire-and-forget with a 3 second timeout, because monitoring that can take down
-the thing it monitors is worse than no monitoring, and there is a test asserting a
-dead webhook still returns a successful refund.
+### The audit log checks itself
 
 **Detection does not depend on the Tamper button.** The chain is verified on every
 ledger read, so whoever looks next finds the break, including a console polling in
@@ -503,12 +542,6 @@ payment that fails after an ALLOW cannot still look paid:
 RAZORPAY_WEBHOOK_SECRET=... python demo/server.py   # point the webhook at /api/razorpay/webhook
 ```
 
-<img src="docs/images/checkpoint.jpg" alt="The checkpoint running: an injected add-on passes every rule and is caught by the intent check" width="100%">
-
-The screenshot is the case that matters: **every rule passes**, right category,
-under the cap, valid slip, unspent nonce, and the one model call is what catches
-the add-on the product page talked the agent into.
-
 ---
 
 ## Adversarial testing
@@ -531,8 +564,8 @@ verdict Parchi must return, and prints a report.
 **Six of these got through on the first run**, including payee substitution (a valid
 slip for one shop authorised a purchase at *any* other) and a zero-value cart. Two
 more were passing *for the wrong reason*: the model happened to catch what no rule
-did, so a model outage would have re-opened both. Fixing them is why there are now ten
-deterministic checks instead of six.
+did, so a model outage would have re-opened both. Fixing them is why there are now
+12 deterministic checks instead of six.
 
 ### The held-out set the generator didn't write
 
@@ -666,6 +699,7 @@ a gap, but it means it is a containment layer and not a substitute for securing
 the runtime the agent lives in.
 
 ---
+
 ## Why this and not the obvious alternative
 
 Every row is a decision that could have gone the other way. Several of them *did*,
@@ -698,26 +732,31 @@ Small enough that a reviewer can read the whole thing in ten minutes. That is a 
 ```
 parchi/
 ├── parchi/
-│   ├── mandate.py       # signed intent record + cart canonical bytes, sign, verify
-│   ├── agents.py        # agent identity registry
-│   ├── checks.py        # the 10 deterministic checks. no AI in this file
-│   ├── intent_match.py  # the ONE model call: timeout, fallback, injection fencing
-│   ├── ledger.py        # hash-chained audit log + verify_chain()
-│   ├── engine.py        # orchestrates: checks → model → verdict → ledger
-│   ├── evidence.py      # dispute evidence pack builder
-│   ├── operators.py     # console accounts: scrypt hashing, session tokens
-│   ├── behavior.py      # sequence detectors: burst, coupon farming, drift
-│   ├── cooldown.py      # the 10-minute account block, with operator release
-│   ├── ai_guard.py      # the adjudicator that decides when a block is earned
-│   └── users.py         # shopper accounts: signup, login, a key of one's own
-├── data/generate.py     # 1,000 labelled agent purchases, deterministic
-├── eval/evaluate.py     # precision, recall, false-positive rupee cost, baselines
-├── tests/
-│   ├── test_parchi.py   # core tests, including one that tampers with the ledger
-│   └── test_attacks.py  # 48 adversarial patterns with the verdict each must get
-├── demo/                # fastapi server + the page in the video
-├── docs/upi-mapping.md  # mandate fields mapped onto UPI Reserve Pay
-└── FAILURES.md          # what broke, what it actually was, what it cost
+│   ├── mandate.py         # signed intent record + cart canonical bytes, sign, verify
+│   ├── checks.py          # the 12 deterministic checks. no AI in this file
+│   ├── engine.py          # orchestrates: checks → model → verdict → ledger
+│   ├── intent_match.py    # the ONE model call: timeout, fallback, injection fencing
+│   ├── openai_provider.py # the transport: strict JSON, call budget, key redaction
+│   ├── ledger.py          # hash-chained audit log + verify_chain()
+│   ├── evidence.py        # dispute evidence pack builder
+│   ├── agents.py          # agent identity registry
+│   ├── pricing.py         # coupon book and price book: what things really cost
+│   ├── threat.py          # names a refusal: forgery, injection, probing, abuse
+│   ├── behavior.py        # sequence detectors: burst, coupon farming, drift
+│   ├── ai_guard.py        # the adjudicator that decides when a block is earned
+│   ├── cooldown.py        # the 10-minute account block, with operator release
+│   ├── operators.py       # console accounts: scrypt hashing, session tokens
+│   ├── users.py           # shopper accounts: signup, login, a key of one's own
+│   └── razorpay.py        # test-mode Orders, checkout and webhook signatures
+├── data/generate.py       # 1,000 labelled agent purchases, deterministic
+├── eval/
+│   ├── evaluate.py        # precision, recall, false-positive rupee cost, baselines
+│   ├── heldout.py         # hand-written cases the generator never produced
+│   └── adjudicator.py     # scores the AI that can lock a customer out
+├── tests/                 # 296, including the 48 adversarial patterns
+├── demo/                  # fastapi server, the shop page, the operations console
+├── docs/upi-mapping.md    # mandate fields mapped onto UPI Reserve Pay
+└── FAILURES.md            # what broke, what it actually was, what it cost
 ```
 
 ### What the log proves

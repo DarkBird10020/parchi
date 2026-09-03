@@ -303,6 +303,30 @@ cooldowns = CooldownStore(cooldown_seconds=COOLDOWN_SECONDS)
 # payer_id -> agent ids that presented its slips, for swarm detection.
 swarm_seen: dict[str, set[str]] = {}
 
+# Accounts with an adjudication in flight. The cooldown check alone is not
+# enough to stop a second review: the cooldown only exists once the model has
+# answered, and a swarm arrives as several attempts in the same breath, so
+# three of them dispatched three reviews before any of them had cooled the
+# account. Three model calls, three identical alerts, one incident. The claim
+# below is taken synchronously, on the request thread, which is the only place
+# the ordering is guaranteed.
+adjudicating: set[str] = set()
+adjudicating_lock = threading.Lock()
+
+
+def claim_adjudication(payer_id: str) -> bool:
+    """Take the right to review this account, if nobody else holds it."""
+    with adjudicating_lock:
+        if payer_id in adjudicating:
+            return False
+        adjudicating.add(payer_id)
+        return True
+
+
+def release_adjudication(payer_id: str) -> None:
+    with adjudicating_lock:
+        adjudicating.discard(payer_id)
+
 # The AI adjudicator spends tokens on every escalation it reviews, and the
 # operator is the one paying that bill. This is their off switch: alerts keep
 # being raised by the deterministic detectors either way, only the model call
@@ -344,6 +368,21 @@ def adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
     measures how often that judgement is right, and FAILURES.md entry 16 is
     what happened when it was not measured.
     """
+    try:
+        _adjudicate_swarm(actor, payer_id, signals, txn_id)
+    except Exception as exc:
+        # Fail open, the same way the adjudicator itself does. This runs on its
+        # own thread, so an escaping exception blocks nobody, but it would die
+        # as an unattributed traceback in the server log. Name it instead.
+        print(f"adjudication for {payer_id} failed: {exc!r}", file=sys.stderr)
+    finally:
+        # Always, including on an exception: a claim never given back is an
+        # account that can never be reviewed again.
+        release_adjudication(payer_id)
+
+
+def _adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
+                      txn_id: str) -> None:
     assessment = assess_attack(actor, signals, timeout=30.0)
     if assessment is None:
         # Unavailable, out of credit, or malformed. Fail open: the plain
@@ -427,7 +466,8 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
     # an unavailable model fails open, and the alerts still stand on their own.
     swarm = detect_swarm(mandate.payer_id, cart.agent_id or "", swarm_seen)
     escalation_shape = swarm or any(p.kind == "rebuilt_attempt" for p in patterns)
-    if escalation_shape and not cooldowns.check(mandate.payer_id).active:
+    if (escalation_shape and not cooldowns.check(mandate.payer_id).active
+            and claim_adjudication(mandate.payer_id)):
         # The pattern is worth naming whatever the gate is set to - turning
         # the model off must make the operation cheaper, not blind. What the
         # gate controls is whether a model is asked to adjudicate it.
@@ -446,7 +486,7 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
             # The operator turned the adjudicator off. The pattern is named
             # above; what stops is the model call, the ai_attack verdict, and
             # the automatic cooldown. Cheaper, not blind.
-            pass
+            release_adjudication(mandate.payer_id)
         elif swarm:
             signals = {
                 "detectors_fired": [p.to_dict() for p in patterns],
@@ -473,7 +513,7 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
             # it, but a rebuilt attempt is already handled - the replay check
             # refused the rebuild, so the escalation here would only ever
             # re-derive that. It is named, not re-adjudicated.
-            pass
+            release_adjudication(mandate.payer_id)
 
     if threat is None and not patterns:
         return None

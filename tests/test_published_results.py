@@ -155,7 +155,7 @@ def test_the_readme_quotes_the_model_run_it_links():
 # this project cannot afford to make, so the counts are asserted, not trusted.
 # --------------------------------------------------------------------------
 
-DOCS = ["docs/pitch-video.md", "docs/submission.md"]
+DOCS = ["docs/pitch-video.md", "docs/submission.md", "README.md"]
 
 
 def _deterministic_check_count() -> int:
@@ -218,3 +218,105 @@ def test_the_pitch_states_the_real_number_of_failure_entries():
     assert re.search(rf"\b({entries}|{words[entries]})\b\s+entries", text, re.I), (
         f"the pitch script does not say {entries} entries, which is how many "
         "FAILURES.md now has")
+
+
+def test_the_readme_counts_the_behavioural_rows_it_claims():
+    """The prose said "the last four" when the table had grown to seven.
+
+    A count in prose beside a table it describes drifts the moment the table
+    changes, and this one already had.
+    """
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    table = readme[readme.index("| What was attempted |"):
+                   readme.index("### The patterns one cart cannot show")]
+    rows = [r for r in table.splitlines() if r.startswith("|") and "---" not in r][1:]
+
+    from parchi import behavior  # noqa: F401  (imported for the kinds below)
+    behavioural = ["purchase_burst", "coupon_hot", "coupon_farming",
+                   "discount_drift", "ai_attack", "account_cooled",
+                   "cooldown_block"]
+    tail = rows[-len(behavioural):]
+    for kind in behavioural:
+        assert any(kind in row for row in tail), (
+            f"`{kind}` is not among the last {len(behavioural)} rows the prose "
+            "describes as the second layer")
+
+    words = {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+    stated = words[len(behavioural)]
+    assert f"last {stated} rows" in readme, (
+        f"the README no longer says 'last {stated} rows'; the table has "
+        f"{len(behavioural)} behavioural entries")
+
+
+def test_every_in_page_link_points_at_a_heading_that_exists():
+    """A contents list with a dead anchor is worse than no contents list."""
+    import re
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    headings = {
+        re.sub(r"[^a-z0-9 -]", "", h.lower()).replace(" ", "-")
+        for h in re.findall(r"^#{2,4} (.+)$", readme, re.M)
+    }
+    broken = [a for a in re.findall(r"\]\(#([a-z0-9-]+)\)", readme)
+              if a not in headings]
+    assert not broken, f"README links to headings that do not exist: {broken}"
+
+
+def test_every_image_the_readme_shows_is_in_the_repo():
+    """A README whose screenshots 404 on GitHub is the first thing a reviewer
+    sees, and the last thing anyone notices locally."""
+    import re
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    refs = re.findall(r'<img src="([^"]+)"', readme) + re.findall(r"!\[[^\]]*\]\(([^)]+)\)", readme)
+    local = [r for r in refs if not r.startswith("http")]
+    assert local, "the README shows no local images"
+    missing = [r for r in local if not (ROOT / r).exists()]
+    assert not missing, f"README references images that are not in the repo: {missing}"
+
+    for ref in local:
+        assert (ROOT / ref).stat().st_size > 5_000, (
+            f"{ref} is suspiciously small for a screenshot")
+
+
+def test_every_readme_image_has_alt_text():
+    """Screen readers, and the reviewer whose corporate proxy blocks images."""
+    import re
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    for tag in re.findall(r"<img [^>]*>", readme):
+        alt = re.search(r'alt="([^"]*)"', tag)
+        assert alt and alt.group(1).strip(), f"image without alt text: {tag[:80]}"
+
+
+def test_the_readme_markdown_structure_renders():
+    """Headings glued to a paragraph, and text glued to a table, render wrong
+    on GitHub and are invisible in a local editor."""
+    import re
+
+    lines = (ROOT / "README.md").read_text(encoding="utf-8").split("\n")
+    problems, in_fence = [], False
+    for i, line in enumerate(lines):
+        if line.startswith("```"):
+            in_fence = not in_fence
+            continue
+        if in_fence:
+            continue
+        if re.match(r"^#{1,6} ", line) and i and lines[i - 1].strip():
+            problems.append(f"line {i + 1}: heading with no blank line before it")
+        if (line.startswith("|") and "---" not in line and i + 1 < len(lines)
+                and lines[i + 1].strip() and not lines[i + 1].startswith(("|", "#"))):
+            problems.append(f"line {i + 2}: text glued to the end of a table")
+    assert not in_fence, "unclosed code fence in README.md"
+    assert not problems, "; ".join(problems)
+
+
+def test_no_screenshot_is_used_twice():
+    """A README that repeats a screenshot reads as padded."""
+    import collections
+    import re
+
+    refs = re.findall(r'<img src="(docs/images/[^"]+)"',
+                      (ROOT / "README.md").read_text(encoding="utf-8"))
+    repeated = [name for name, n in collections.Counter(refs).items() if n > 1]
+    assert not repeated, f"the same screenshot appears more than once: {repeated}"

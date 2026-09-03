@@ -10,6 +10,7 @@ Properties under test:
 from __future__ import annotations
 
 import os
+import time
 
 from fastapi.testclient import TestClient
 
@@ -282,3 +283,77 @@ def test_operator_controls_require_the_console():
         assert client.post("/api/console/clear-alerts").status_code == 401
     finally:
         server.CONSOLE_TOKEN = ""
+
+
+def test_one_swarm_incident_is_reviewed_once_not_once_per_attempt(monkeypatch):
+    """A swarm arrives as several attempts in the same breath.
+
+    The cooldown check alone cannot stop the second review, because the
+    cooldown does not exist until the model has answered. Three attempts
+    dispatched three reviews: three model calls, three identical alerts, one
+    incident. Found by looking at the console feed in a browser.
+    """
+    calls = []
+
+    def counting_assess(actor, signals, timeout=30.0, model=None):
+        calls.append(actor)
+        time.sleep(0.25)          # a real call is not instant; that is the race
+        return AttackAssessment(True, 0.95, "credential farm", "test-model")
+
+    monkeypatch.setattr(server, "assess_attack", counting_assess)
+    server.cooldowns.reset()
+    server.swarm_seen.clear()
+    server.adjudicating.clear()
+    client.post("/api/reset")
+    try:
+        for _ in range(3):
+            client.post("/api/authorize", json={"scenario": "swarm"})
+        # Let whichever threads were dispatched finish.
+        for _ in range(40):
+            if not server.adjudicating:
+                break
+            time.sleep(0.1)
+
+        assert len(calls) == 1, (
+            f"one swarm incident asked the model {len(calls)} times")
+        alerts = client.get("/api/alerts", params={"limit": 60}).json()["alerts"]
+        cooled = [a for a in alerts if a["kind"] == "account_cooled"]
+        assert len(cooled) == 1, f"{len(cooled)} cooldown alerts for one incident"
+    finally:
+        server.cooldowns.reset()
+        server.swarm_seen.clear()
+        server.adjudicating.clear()
+
+
+def test_the_claim_is_given_back_even_when_the_adjudicator_raises(monkeypatch):
+    """A claim never released is an account that can never be reviewed again.
+
+    And nothing escapes: this runs on its own thread, where an exception would
+    surface as an unattributed traceback in the server log and block nobody.
+    """
+    def boom(*args, **kwargs):
+        raise RuntimeError("endpoint on fire")
+
+    monkeypatch.setattr(server, "assess_attack", boom)
+    server.adjudicating.clear()
+    server.adjudicate_swarm("agt_1", "usr_stuck", {"x": 1}, "txn_1")
+    assert "usr_stuck" not in server.adjudicating
+    assert not server.cooldowns.check("usr_stuck").active, (
+        "a failed adjudication must never cool an account")
+
+
+def test_turning_the_gate_off_does_not_strand_the_claim(monkeypatch):
+    """The off path never starts a thread, so it has to release the claim itself."""
+    server.adjudicating.clear()
+    server.cooldowns.reset()
+    server.swarm_seen.clear()
+    monkeypatch.setattr(server, "ai_gate_enabled", False)
+    client.post("/api/reset")
+    try:
+        for _ in range(3):
+            client.post("/api/authorize", json={"scenario": "swarm"})
+        assert not server.adjudicating, (
+            f"claims left behind with the gate off: {server.adjudicating}")
+    finally:
+        server.cooldowns.reset()
+        server.swarm_seen.clear()

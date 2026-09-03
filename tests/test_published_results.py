@@ -350,3 +350,32 @@ def test_the_pitch_deck_agrees_with_the_adjudicator_story():
         assert figure in deck, f"the adjudicator table is missing {figure}"
     assert "15" in failures and "entry 16" in deck.lower(), (
         "the deck should point at the FAILURES entry it is retelling")
+
+
+def test_the_spoken_script_still_fits_five_minutes():
+    """A script that drifts to six minutes is found out on the day.
+
+    Counts only the quoted lines, which are the words actually said; stage
+    directions and headings are not spoken. The budget is set at the brisk end
+    of a normal technical delivery, so passing here means the script is
+    deliverable, not that every pace fits.
+    """
+    import re
+
+    doc = (ROOT / "docs/pitch-video.md").read_text(encoding="utf-8")
+    body = doc[doc.index("### BLOCK A"):doc.index("### Timing, measured")]
+    spoken = " ".join(ln[2:] for ln in body.splitlines() if ln.startswith("> "))
+    words = len(re.sub(r'[*_`"]', "", spoken).split())
+
+    # 5:00 total, minus ~20s of clicking and waiting in the demo, at 165 wpm.
+    budget = int((300 - 20) / 60 * 165)
+    assert words <= budget, (
+        f"the script is {words} spoken words; even at a brisk 165 wpm that is "
+        f"{words / 165 * 60 + 20:.0f}s against a 300s limit (budget {budget})")
+
+    # And the timing note has to quote the real count, not an old one. Matched
+    # against the note with newlines flattened, since the number and the word
+    # "words" can land either side of a line wrap.
+    note = " ".join(doc[doc.index("### Timing, measured"):].split())
+    assert str(words) in note, (
+        f"the timing note does not quote the real spoken-word count ({words})")

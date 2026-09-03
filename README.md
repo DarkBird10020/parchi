@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-302%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-303%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -753,7 +753,7 @@ parchi/
 │   ├── evaluate.py        # precision, recall, false-positive rupee cost, baselines
 │   ├── heldout.py         # hand-written cases the generator never produced
 │   └── adjudicator.py     # scores the AI that can lock a customer out
-├── tests/                 # 302, including the 48 adversarial patterns
+├── tests/                 # 303, including the 48 adversarial patterns
 ├── demo/                  # fastapi server, the shop page, the operations console
 ├── docs/upi-mapping.md    # mandate fields mapped onto UPI Reserve Pay
 └── FAILURES.md            # what broke, what it actually was, what it cost

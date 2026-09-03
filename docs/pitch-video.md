@@ -86,223 +86,201 @@ Unlisted YouTube link, which is what the form asks for.
 
 ---
 
-## 0:00-0:40: The problem (40s)
+## The script, word for word
 
-**On screen:** the landing page / hero image, or you talking to camera.
+Three minutes explaining, two minutes demonstrating, in three blocks. Say the
+lines roughly as written. They are built to be **spoken**, not read: short
+sentences, one idea each, no clause you have to hold in your head. Where it
+says *pause*, actually stop for a beat. It is the difference between reciting
+and explaining.
 
-**Say (verbatim-ish):**
-
-> "When an AI agent spends your money, there's no parchi. In India a *parchi* is
-> a permission slip, show it, you get through. Right now AI has no parchi."
-
-> "Razorpay has Agentic Payments on UPI Reserve Pay. The human pre-approves a
-> spending *limit*, but the rail records *nothing about what the money was for*.
-> UPI can answer 'is there money, and is it the right merchant'. It cannot answer
-> 'is this the thing I actually asked for'."
-
-> "That gap is where fraud enters. The customer says *'my agent did that, I
-> didn't'*, and today the merchant cannot prove otherwise."
-
-**Why this order:** lead with the problem, exactly as every judging guide says.
-Do not open with "I built a thing called Parchi."
+Slide numbers refer to `docs/pitch-deck.html`.
 
 ---
 
-## 0:40-1:35: The demo (55s)
+### BLOCK A · 0:00-1:10 · The problem (70 seconds, slides 1-2)
 
-**On screen:** `python demo/server.py` → the page loads → you run scenarios.
+**Slide 1.** On screen: the title.
 
-Three beats, in this order, nothing else:
+> "When an AI agent spends your money, there is no parchi."
+>
+> "In India, a parchi is a permission slip. You show it, you get through."
 
-1. **The injection that passes every rule** (0:40-1:05). Open the
-   `injection` scenario. Say:
+*Pause. Advance to slide 2.*
 
-   > "This cart: right category, under the cap, valid slip, unspent nonce, and
-   > every price is the shop's own. All twelve of my deterministic rules pass.
-   > The product page talked the agent into a protection plan the human never
-   > asked for. One model call is the only thing that catches it."
+> "Razorpay has agentic payments now, on UPI Reserve Pay. The human approves a
+> spending limit up front. But the rail records the limit, not the purpose."
+>
+> "UPI can answer two questions. Is the money there, and is this the right
+> merchant. It cannot answer the third one. **Is this the thing I actually asked
+> for?**"
 
-   Click **Authorize** → **BLOCK, reason: doesn't match intent.**
+*Pause.*
 
-2. **Tamper the ledger** (1:05-1:20). Say:
-
-   > "Every decision is written to a hash-chained ledger. I don't ask you to
-   > believe it's tamper-evident, press Tamper and it verifies itself as broken."
-
-   Click **Tamper** → the chain panel flips red.
-
-3. **The three-way verdict** (1:20-1:35). Say:
-
-   > "Three answers, not two. A high-value legitimate purchase isn't
-   > auto-approved and isn't refused: it steps up to a human. Allow, block, or
-   > ask. That's the difference between a filter and a risk product."
-
-   Run `step_up` → **STEP_UP**.
+> "That gap is where the fraud lives. The customer says: my agent did that, I
+> didn't. And the merchant cannot prove otherwise."
+>
+> "So I built the missing check. Every agent purchase carries a signed
+> permission slip: the cap, the categories, the expiry, and the agent's own
+> playback of what it thinks you asked for. Parchi checks the cart against that
+> slip **before** the money moves."
 
 ---
 
-## 1:35-2:20: The second layer, and the AI that can block you (45s)
+### BLOCK B · 1:10-3:10 · The demo (120 seconds, live browser)
 
-**On screen:** run the `swarm` scenario, then switch to `/console`.
+Slide 3 says CUT TO THE BROWSER. Stop sharing the deck and switch.
 
-This is the beat that makes it an *AI Risk Manager* rather than a validator.
-Have the console already signed in on a second tab so you are not typing a
-password on camera.
+**Beat 1, the injection (about 45 seconds).**
 
-**Say:**
+> "This is the checkpoint, running. I will go straight to the hardest case: a
+> prompt injection on the product page."
 
-> "Everything so far judges one cart against one slip. But some attacks are
-> only visible across *many* carts. Watch this one."
+*Click the `Prompt injection` scenario. Let the card show before you keep going.*
 
-Run **`swarm`** → it comes back **ALLOW**.
+> "Right category. Under the cap. Valid signature. Every price is the shop's
+> own. All twelve deterministic rules pass."
+>
+> "The product page told the agent to add a protection plan. The human never
+> asked for one."
 
-> "Allowed. Correctly. Three different agent credentials each presented a
-> perfectly valid slip for the same account, and every rule passed for every
-> one of them, because each agent really is registered. No single-cart check
-> can see this."
+*Click Authorize. Wait for the verdict. Do not talk over the wait.*
 
-Switch to the console tab, refresh:
+> "Blocked. The reason is in plain English: an extended protection plan the
+> human did not ask for. One model call is the only thing here that could have
+> caught it."
 
-> "One payer wearing many faces is a credential farm. So the checkpoint hands
-> that pattern to a model and asks the one question a counter can't: *is this
-> account genuinely under attack?* It said yes, ninety-five percent confident,
-> and the account is now cooled down for ten minutes."
+**Beat 2, the ledger (about 20 seconds). Optional: this is the first thing to
+cut if you are running long, and the script fits 5:00 without it.**
 
-Point at the alert feed, then the release button:
+> "Every decision goes into a hash-chained ledger. I am not going to ask you to
+> believe it is tamper-evident."
 
-> "This is the operations console. Only staff get in. Every alert names who it
-> was about, the AI's verdict is attached with its confidence and which model
-> said it, and there's a Release button, because an automatic block nobody can
-> undo is a lockout waiting for 3am."
+*Click Tamper.*
 
-Run any scenario again on the shop tab → **BLOCK, account in cooldown.**
+> "It reports itself broken."
 
-> "And it's not in the payment path. The model runs *after* the verdict, on its
-> own thread. A wrong answer there costs a cooldown a human can lift. It can
-> never cost a silently stolen purchase."
+**Beat 3, the swarm and the console (about 55 seconds).**
 
----
+> "Now a harder kind of attack. One that no single cart can show."
 
-## 2:20-3:05: The scoreboard (45s)
+*Click the `swarm` scenario.*
 
-**On screen:** the README results table.
+> "Allowed, and that is correct. Three registered agents each presented a valid
+> slip for the same account, and every rule passes for each of them. But one
+> wallet with many faces is a credential farm."
 
-**Say:**
+*Switch to the console tab. Refresh.*
 
-> "I scored it like a risk product, not a demo. A thousand labelled agent
-> purchases. The number I care about is not recall: it's the *cost of the
-> mistakes, in rupees*, because a blocked genuine customer is money the merchant
-> lost."
-
-Walk the table:
-
-> "Allow everything: seventeen lakh paid out on violations. Block all agent
-> traffic: thirty-three lakh of good revenue gone. Rules alone: eighty-four
-> percent caught, two lakh nineteen still through. Parchi, rules plus one model
-> call: all two hundred eighty violations, zero good customers blocked."
-
-Then scroll to the model-run table:
-
-> "And posted right next to it, my full run against a *real* model. Two hundred
-> seventy-eight of two hundred eighty caught, twenty-two false blocks, and
-> twenty-two calls that missed the four-second budget. Every one of those
-> twenty-two went to a human. Not one was auto-approved."
-
-> "An earlier run of the *same code* scored ninety-seven percent with zero
-> degraded. Same thousand rows, different day, slower endpoint. I publish both,
-> because a risk product that only quotes its best run is doing the exact thing
-> it exists to prevent."
-
-**Why this lands:** the buildathon bar is literally "honest metrics including
-false-positive cost." You are reading their grading rubric back at them.
+> "This is the operations console. Staff only. The adjudicator read the pattern
+> and called it a credential farm, ninety percent confident."
+>
+> "The account is blocked for ten minutes, and a human can release it right
+> here. That release is logged with their name on it."
 
 ---
 
-## 3:05-3:55: The honesty beat (50s)
+### BLOCK C · 3:10-5:00 · The numbers, what broke, the architecture (110 seconds)
 
-**On screen:** `FAILURES.md`, scrolled to entry 16.
+Switch back to the deck, slide 5.
 
-This is your strongest 50 seconds. Do not rush it.
+**Slide 5, the scoreboard (about 35 seconds).**
 
-**Say:**
+> "A thousand labelled agent purchases. I count false positives in rupees, not
+> percentages, because a blocked real customer is money the merchant lost."
+>
+> "Block everything, you lose thirty-three lakh of good revenue. Allow
+> everything, you pay out seventeen lakh. Rules alone still leak two lakh.
+> Parchi catches all two hundred and eighty and blocks nobody."
+>
+> "And next to it I publish the real-model run. Twenty-two calls missed the
+> four-second budget. Every one went to a human. **Not one was auto-approved.**"
 
-> "The file I'm proudest of is the failure log. Seventeen entries, each with
-> what I first assumed, what it actually was, and what it cost. Entry sixteen is
-> the one I'd want a risk team to read."
+**Slide 6, what broke (about 45 seconds). This is the beat that wins it. Slow down.**
 
-> "I built that AI adjudicator, the one that locks an account for ten minutes.
-> It worked. It caught every attack I threw at it. Then I noticed something:
-> every deterministic check in this repo is scored against a thousand rows, and
-> the one component that can refuse a real customer was scored against nothing."
+> "Now the part I would want a risk team to read."
+>
+> "I built that adjudicator. The one that just locked an account. It caught
+> every attack I threw at it. It looked finished."
 
-> "So I wrote the eval that should have existed first. Twelve situations, six
-> real attacks and six ordinary customers who just happen to trip a counter, an
-> office manager buying for a team, someone retrying on bad wifi, a shopper in a
-> public sale. It convicted fifteen out of eighteen innocent customers."
+*Pause.*
 
-> "Its perfect recall wasn't skill. A rule that always says yes catches every
-> attack too. The prompt listed what attacks look like and never once said what
-> *clearing* someone looks like."
+> "Then I noticed something. Every deterministic check in this repo is scored
+> against a thousand rows. The one component that can refuse a **real customer**
+> was scored against nothing."
+>
+> "So I wrote the test that should have existed first. Twelve situations, half
+> of them ordinary customers who happen to trip a counter. An office manager
+> buying for a team. Someone retrying on bad wifi."
+>
+> "It convicted fifteen out of eighteen innocent customers."
 
-> "The fix was writing the cost asymmetry into the prompt: convicting a real
-> customer blocks them for ten minutes while they're mid-purchase, and clearing
-> a real attacker costs nothing, because every deterministic refusal still
-> stands. Eighteen out of eighteen attacks, sixteen out of eighteen customers
-> left alone. Both runs are in the file."
+*Pause. Let that sit.*
 
-> "I'm not pretending a build this size is production. Keys in memory, a
-> single-process nonce store, all named in the README, not hidden."
+> "Its perfect recall was not skill. **A rule that always says yes catches every
+> attack too.**"
+>
+> "The fix was telling the model what a false conviction costs. Eighteen of
+> eighteen attacks caught. Sixteen of eighteen customers left alone."
 
----
+**Slide 7, the architecture (about 30 seconds).**
 
-## 3:55-4:35: The architecture (40s)
+> "The architecture is deliberately boring where it should be. Twelve
+> deterministic checks run first. Plain code, no AI in that file, stopping at
+> the first failure."
+>
+> "Only if every rule passes does one model call run, and it answers one
+> question: does this cart match what the human asked for."
+>
+> "The spending cap is kept **out** of that prompt, so the model never
+> re-decides arithmetic. It did that once and blocked a four thousand rupee cart
+> for exceeding five thousand."
+>
+> "And three verdicts, not two: allow, block, and ask the human. If the model
+> call dies, the answer is ask. Never allow."
 
-**On screen:** the mermaid flowchart from the README (full screen).
+**Slides 8 and 9, the close (about 20 seconds).**
 
-**Say, pointing:**
+> "Agent Studio answers disputes on human transactions. This is the other half:
+> it prevents and evidences them on agent transactions. And it is defence only.
+> Nothing here can initiate a payment."
 
-> "Three parts. One: the human signs an AP2-inspired intent mandate, cap,
-> categories, expiry, nonce, and the agent's own playback of the request."
+*Advance to the last slide.*
 
-> "Two: twelve deterministic checks run first, signature, expiry, payee, method,
-> line items, quantity, prices, category, discount, cap, agent identity, replay.
-> Cheap, exact, auditable, no AI in that file. They short-circuit on the first
-> failure. Discount is checked *before* the cap on purpose, because the cap is
-> enforced on the post-discount total, so an unverified coupon is a way under
-> any ceiling."
+> "No parchi, no purchase. The repo is public, and two commands reproduce every
+> number in it."
 
-> "Three: only if every rule passes, *one* model call answers the question rules
-> can't. Strict typed JSON, a timeout, untrusted merchant text fenced off as
-> data, and the spending cap deliberately kept *out* of the prompt so the model
-> never re-decides arithmetic."
-
-> "Every decision, allow, block or step-up, is hash-chained either way, so a
-> merchant can prove what was authorised. And behind all of it, the behavioural
-> layer watching what one cart can't show: velocity, coupon farming, agent
-> swarms. Those raise alerts. They never change a verdict."
-
----
-
-## 4:35-4:52: Why this matters to Razorpay (17s)
-
-**Say:**
-
-> "Agent Studio already has an agent that *answers* disputes on human
-> transactions. Parchi is the opposite half: it *prevents* and *evidences*
-> disputes on *agent* transactions, the unsolved one. It's a pre-authorisation
-> checkpoint sitting where the mandate meets the cart, mapping field-for-field
-> onto UPI Reserve Pay."
+*Stop talking. Leave the URL up for two seconds, then end the recording.*
 
 ---
 
-## 4:52-5:00: The closer (8s)
+### Timing, measured rather than hoped
 
-**Say:**
+The spoken lines here are **695 words** without the optional ledger beat, 718
+with it. Add roughly 20 seconds of clicking and waiting inside the demo, where
+you should not be talking anyway.
 
-> "No parchi, no purchase. The repo is public, two commands reproduce every
-> number, and the failure log is as long as the feature list."
+| Your pace | Without the ledger beat | With it |
+|:--- |:--- |:--- |
+| 145 wpm, unhurried | 5:08 | 5:22 |
+| 155 wpm, normal for a technical talk | 4:49 | 5:02 |
+| 165 wpm, brisk | 4:33 | 4:45 |
 
-**Screen:** the repo URL.
+So: **rehearse once with a stopwatch and read your own pace off that table.**
+If you land near 145, drop the ledger beat. If you are at 155 or above, keep it.
+
+`tests/test_published_results.py` re-counts these lines and fails if the script
+grows past its budget, because a script that quietly drifts to six minutes is
+found out on the day rather than in the repo.
+
+If you still run long, cut in this order and never anything below it:
+
+1. Beat 2, the ledger tamper.
+2. Slide 7's cap anecdote, keeping the rest of the architecture.
+3. Slide 8, the Agent Studio comparison.
+
+Never cut slide 6. A 5:10 video with slide 6 intact is a better submission than
+a tight 5:00 without it.
 
 ---
 

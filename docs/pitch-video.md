@@ -104,7 +104,7 @@ Slide numbers refer to `docs/pitch-deck.html`.
 
 > "When an AI agent spends your money, there is no parchi."
 >
-> "In India, a parchi is a permission slip. You show it, you get through."
+> "In India, a parchi is a permission slip. Show it, you get through."
 
 *Pause. Advance to slide 2.*
 
@@ -118,7 +118,7 @@ Slide numbers refer to `docs/pitch-deck.html`.
 *Pause.*
 
 > "That gap is where the fraud lives. The customer says: my agent did that, I
-> didn't. And the merchant cannot prove otherwise."
+> didn't. The merchant cannot prove otherwise."
 >
 > "So I built the missing check. Every agent purchase carries a signed
 > permission slip: the cap, the categories, the expiry, and the agent's own
@@ -133,8 +133,8 @@ Slide 3 says CUT TO THE BROWSER. Stop sharing the deck and switch.
 
 **Beat 1, the injection (about 45 seconds).**
 
-> "This is the checkpoint, running. I will go straight to the hardest case: a
-> prompt injection on the product page."
+> "The checkpoint, running. Straight to the hardest case: a prompt injection on
+> the product page."
 
 *Click the `Prompt injection` scenario. Let the card show before you keep going.*
 
@@ -162,7 +162,7 @@ cut if you are running long, and the script fits 5:00 without it.**
 
 **Beat 3, the swarm and the console (about 55 seconds).**
 
-> "Now a harder kind of attack. One that no single cart can show."
+> "Now an attack no single cart can show."
 
 *Click the `swarm` scenario.*
 
@@ -190,8 +190,7 @@ Switch back to the deck, slide 5.
 > percentages, because a blocked real customer is money the merchant lost."
 >
 > "Block everything, you lose thirty-three lakh of good revenue. Allow
-> everything, you pay out seventeen lakh. Rules alone still leak two lakh.
-> Parchi catches all two hundred and eighty and blocks nobody."
+> everything, you pay out seventeen lakh. Rules alone leak two lakh."
 >
 > "And next to it I publish the real-model run. Twenty-two calls missed the
 > four-second budget. Every one went to a human. **Not one was auto-approved.**"
@@ -200,7 +199,7 @@ Switch back to the deck, slide 5.
 
 > "Now the part I would want a risk team to read."
 >
-> "I built that adjudicator. The one that just locked an account. It caught
+> "I built that adjudicator, the one that just locked an account. It caught
 > every attack I threw at it. It looked finished."
 
 *Pause.*
@@ -226,8 +225,8 @@ Switch back to the deck, slide 5.
 **Slide 7, the architecture (about 30 seconds).**
 
 > "The architecture is deliberately boring where it should be. Twelve
-> deterministic checks run first. Plain code, no AI in that file, stopping at
-> the first failure."
+> deterministic checks first: plain code, no AI in that file, stopping at the
+> first failure."
 >
 > "Only if every rule passes does one model call run, and it answers one
 > question: does this cart match what the human asked for."
@@ -241,6 +240,10 @@ Switch back to the deck, slide 5.
 
 **Slides 8 and 9, the close (about 20 seconds).**
 
+> "This sits where Razorpay sits, between the agent and the merchant. Bad agent
+> traffic that clears costs the merchant twice: the chargeback, and the dispute
+> ratio behind it. Every number I just showed is merchant money."
+>
 > "Agent Studio answers disputes on human transactions. This is the other half:
 > it prevents and evidences them on agent transactions. And it is defence only.
 > Nothing here can initiate a payment."
@@ -256,18 +259,21 @@ Switch back to the deck, slide 5.
 
 ### Timing, measured rather than hoped
 
-The spoken lines here are **695 words** without the optional ledger beat, 718
-with it. Add roughly 20 seconds of clicking and waiting inside the demo, where
-you should not be talking anyway.
+The spoken lines are **707 words** without the optional ledger beat, 730
+with it. Add about 20 seconds of clicking and waiting in the demo, where you
+should not be talking anyway.
 
 | Your pace | Without the ledger beat | With it |
 |:--- |:--- |:--- |
-| 145 wpm, unhurried | 5:08 | 5:22 |
-| 155 wpm, normal for a technical talk | 4:49 | 5:02 |
-| 165 wpm, brisk | 4:33 | 4:45 |
+| 145 wpm, unhurried | 5:13 | 5:22 |
+| 155 wpm, normal for a technical talk | 4:54 | 5:03 |
+| 165 wpm, brisk | 4:37 | 4:45 |
 
-So: **rehearse once with a stopwatch and read your own pace off that table.**
-If you land near 145, drop the ledger beat. If you are at 155 or above, keep it.
+If you speak slowly, buy time in this order: drop the ledger beat (about 10
+seconds), then slide 7's cap anecdote (about 15).
+
+So: **rehearse once with a stopwatch and read your own row off that table.**
+Nothing else in this document matters as much as knowing which row you are.
 
 `tests/test_published_results.py` re-counts these lines and fails if the script
 grows past its budget, because a script that quietly drifts to six minutes is
@@ -326,7 +332,15 @@ a tight 5:00 without it.
    Nothing here can *initiate* a payment, only permit or refuse one. Track 02
    requires defense-only; this is compliance by construction, not a caveat.
 
-9. **"What would you do with real Razorpay infra?"** → Hardware-backed keys, a
+9. **"Why is the step-up threshold a flat Rs 10,000?"**
+   → Because it is policy, not a model. A flat line is predictable, auditable
+   and cannot be gamed by shaping a cart, which a learned threshold can. It is
+   a constructor argument, not a constant buried in a function. The honest end
+   state is per-payer and risk-scored, and the input that needs is behavioural
+   history, which a four-day build does not have. The ledger already records
+   everything that scoring would read.
+
+10. **"What would you do with real Razorpay infra?"** → Hardware-backed keys, a
    shared nonce store and agent registry, a signed external anchor for the
    ledger, and shared state behind the behavioural detectors, which are
    per-process today.

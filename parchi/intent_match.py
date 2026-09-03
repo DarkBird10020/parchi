@@ -160,11 +160,12 @@ def _render_cart(cart: Cart) -> str:
 
 def _build_prompt(m: IntentMandate, cart: Cart) -> str:
     return PROMPT.format(
-        playback=m.prompt_playback,
+        # The cap is not in the prompt as a field, and now it is not in the
+        # playback either. Removing the field alone left the model reading
+        # "under Rs 5,000" in the human's own sentence and re-enforcing it,
+        # which is 18 of the 22 false blocks in the published model run.
+        playback=redact_amounts(m.prompt_playback),
         categories=", ".join(m.allowed_categories),
-        # The cap is deliberately NOT in the prompt. It used to be, and the model
-        # dutifully re-enforced it - wrongly, blocking a Rs 4,077 cart as
-        # "exceeds Rs 5,000". check_amount already decided that, exactly.
         cart=_render_cart(cart),
     )
 
@@ -247,6 +248,40 @@ def _heuristic(m: IntentMandate, cart: Cart) -> dict[str, Any]:
                 ),
             }
     return {"match": True, "reason": "every line echoes the authorised intent"}
+
+
+# Money mentioned inside the playback itself: "under Rs 5,000", "below 10000".
+# The qualifier is taken with the amount so the sentence still reads.
+_MONEY = re.compile(
+    r"\s*\b(?:for\s+)?(?:under|below|less\s+than|within|up\s*to|upto|max(?:imum)?(?:\s+of)?|"
+    r"not\s+(?:more|over)\s+than|no\s+more\s+than)\b\s*"
+    r"(?:rs\.?|inr|₹)?\s*[\d,]+(?:\.\d+)?\b"
+    # No word boundary before the currency: the rupee sign is not a word
+    # character, so requiring one there silently skipped "₹5,000".
+    r"|\s*(?:\b(?:rs\.?|inr)|₹)\s*[\d,]+(?:\.\d+)?\b",
+    re.I)
+
+
+def redact_amounts(text: str) -> str:
+    """The playback with any money in it removed, for the model's eyes only.
+
+    The cap was taken out of the prompt long ago, and the model went on
+    re-deciding price anyway. This is why: the playback is the human's own
+    sentence, and it usually ends "under Rs 5,000". Removing the cap field
+    while passing that sentence through verbatim did not remove the cap from
+    the prompt, it only stopped labelling it.
+
+    Measured on the published 1,000-row model run, 18 of the model's 22 false
+    blocks reasoned about price, several incoherently: one refused a cart at
+    "Rs 4,779.04, which is within the price limit". FAILURES entry 15 recorded
+    that two attempts to fix this with wording both measured worse, and noted
+    that the durable version is not showing a price the model has no job to
+    judge. This is that version.
+
+    Only what the model sees is redacted. The ledger, the evidence pack and the
+    human-facing playback keep the sentence the human actually approved.
+    """
+    return _MONEY.sub("", text).strip() or text.strip()
 
 
 def _split_price(text: str) -> str:

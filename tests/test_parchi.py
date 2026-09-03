@@ -399,3 +399,65 @@ if __name__ == "__main__":
                 print(f"FAIL  {name}: {exc}")
     print(f"\n{failures} failure(s)")
     sys.exit(1 if failures else 0)
+
+
+# --------------------------------------------------------------------------
+# Money in the playback, which is how the cap kept reaching the model after it
+# was taken out of the prompt. FAILURES entry 19.
+# --------------------------------------------------------------------------
+
+def test_the_playback_the_model_sees_carries_no_money():
+    from parchi.intent_match import redact_amounts
+
+    for playback, expected in [
+        ("buy coffee beans under Rs 5,000", "buy coffee beans"),
+        ("buy a laptop stand and hub under Rs 40,000", "buy a laptop stand and hub"),
+        ("buy an airport cab for under Rs 2,500", "buy an airport cab"),
+        ("buy groceries below 10000", "buy groceries"),
+        ("order 2 pizzas up to Rs 900", "order 2 pizzas"),
+        ("buy shoes \u20b95,000", "buy shoes"),
+    ]:
+        assert redact_amounts(playback) == expected
+
+
+def test_redaction_keeps_the_quantity_the_human_asked_for():
+    """The number that is a count must survive; only money goes."""
+    from parchi.intent_match import redact_amounts
+
+    assert redact_amounts("buy 3 notebooks") == "buy 3 notebooks"
+    assert redact_amounts("buy 2 kg coffee under Rs 900") == "buy 2 kg coffee"
+
+
+def test_redaction_never_empties_the_playback():
+    """A playback that is nothing but a price still has to say something."""
+    from parchi.intent_match import redact_amounts
+
+    assert redact_amounts("Rs 5,000").strip()
+    assert redact_amounts("under Rs 5,000").strip()
+
+
+def test_the_prompt_the_model_receives_contains_no_rupee_amount_from_intent():
+    """The whole point, asserted on the built prompt rather than the helper."""
+    import re
+
+    from parchi.intent_match import _build_prompt
+
+    mandate = new_mandate("usr_1", "mrc_1", ("upi",), 500_000, ("footwear",),
+                          "buy running shoes under Rs 5,000")
+    cart = Cart((CartLine("running shoes", "footwear", 420_000),), "upi", "mrc_1")
+    prompt = _build_prompt(mandate, cart)
+
+    intent_block = prompt[prompt.index("AUTHORISED INTENT"):prompt.index("Allowed categories")]
+    assert not re.search(r"5,000|5000", intent_block), (
+        "the cap reached the model through the human's own sentence")
+    # The cart still shows prices: they are what lets it spot an unasked-for
+    # add-on, and that is a different job from judging a budget.
+    assert "4,200" in prompt or "4200" in prompt
+
+
+def test_the_ledger_still_records_what_the_human_actually_approved():
+    """Redaction is for the model's eyes. The evidence keeps the real words."""
+    mandate = new_mandate("usr_1", "mrc_1", ("upi",), 500_000, ("footwear",),
+                          "buy running shoes under Rs 5,000")
+    assert mandate.prompt_playback == "buy running shoes under Rs 5,000"
+    assert "Rs 5,000" in json.dumps(mandate.to_dict())

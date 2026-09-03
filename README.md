@@ -40,6 +40,26 @@ human to ask for. Parchi verifies the purchase against that mandate *before*
 authorisation and writes a hash-chained evidence record either way, so a merchant
 can prove what was authorised when a customer says *"my agent did that, I didn't."*
 
+### Whose money this saves
+
+This is written from the payer's side of the slip, so it is worth being explicit
+about who is out of pocket when it fails, because that is the party paying for
+it.
+
+The checkpoint sits where Razorpay already sits: between the agent and the
+merchant. When bad agent traffic clears, the merchant ships goods against a
+purchase the payer did not authorise, and then loses it twice. Once to the
+chargeback, and once to the scheme fees and the dispute ratio that follows.
+Agent-initiated volume makes that worse in a specific way: an agent can present
+a hundred plausible carts in a minute, and every one it gets through is a
+dispute the merchant has no evidence to contest, because "the agent decided to"
+is not a defence anybody has had to answer before.
+
+The three numbers this repo reports are all merchant money. Violations that
+cleared are chargebacks waiting to happen. False blocks are revenue refused at
+checkout. Carts sent to a human are the ones worth the friction. That is why
+the scoreboard is denominated in rupees rather than in percentages.
+
 > [!NOTE]
 > Razorpay's Agent Studio already has a dispute-**response** agent. That one answers
 > disputes on human transactions. Parchi **prevents and evidences** disputes on
@@ -808,6 +828,15 @@ Pretending a hackathon build is production-grade is the actual red flag.
   remains outside this repository.
 - **Synthetic data.** 1,000 generated rows with known labels. Real agent traffic is
   messier, and the intent check is the part that would move first.
+- **The step-up threshold is a flat Rs 10,000, and that is policy, not risk
+  scoring.** It is a constructor argument rather than a model of anything: no
+  payer history, no merchant reputation, no velocity, no time of day. A flat
+  line is defensible as a v1 because it is predictable, auditable, and cannot
+  itself be gamed by shaping a cart, which a learned threshold can. It is not
+  defensible as an end state. The honest version is per-payer and risk-scored,
+  and the reason it is not here is that scoring a threshold needs real
+  behavioural history, which is precisely what a four-day build does not have.
+  Everything the scoring would need is already recorded in the ledger.
 - **No multi-agent consensus** on high-value approvals. The step-up path hands those
   to a human instead, cheaper and, for four days, more honest.
 - **The intent check is one call with no retry.** In front of a payment, a slow

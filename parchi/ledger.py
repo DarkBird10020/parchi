@@ -114,10 +114,15 @@ def verify_chain(path: str = "ledger.jsonl") -> tuple[bool, str, int]:
             if not line:
                 continue
             n += 1
-            rec = json.loads(line)
+            try:
+                rec = json.loads(line)
+            except (TypeError, ValueError):
+                return False, f"record {i} is not valid JSON", n
+            if not isinstance(rec, dict):
+                return False, f"record {i} is not a JSON object", n
             if rec.get("prev") != prev:
                 return False, f"record {i} does not link to record {i - 1}", n
-            if rec.get("hash") != _record_hash(rec):
+            if not isinstance(rec.get("hash"), str) or rec["hash"] != _record_hash(rec):
                 return False, f"record {i} has been altered - hash does not match its body", n
             prev = rec["hash"]
     return True, f"chain intact across {n} records", n

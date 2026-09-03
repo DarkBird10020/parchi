@@ -20,9 +20,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
+from parchi import openai_provider
 from parchi.agents import AgentRegistry
 from parchi.checks import NonceStore
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Engine
+from parchi.intent_match import MODEL as ANTHROPIC_MODEL
 from parchi.intent_match import resolve_provider
 from parchi.ledger import Ledger, verify_chain
 from parchi.mandate import Cart, IntentMandate, rupees
@@ -43,7 +45,7 @@ def score(rows: list[dict], predictions: list[str]) -> dict:
     tp = fp = fn = tn = 0
     fp_paise = fn_paise = 0
     exact = 0
-    step_up_hits = step_up_total = 0
+    step_up_hits = step_up_total = step_up_predicted = 0
 
     for row, pred in zip(rows, predictions, strict=True):
         total = row["cart"]["total_paise"]
@@ -63,6 +65,8 @@ def score(rows: list[dict], predictions: list[str]) -> dict:
 
         if pred == row["ground_truth_verdict"]:
             exact += 1
+        if pred == STEP_UP:
+            step_up_predicted += 1
         if row["ground_truth_verdict"] == STEP_UP:
             step_up_total += 1
             if pred == STEP_UP:
@@ -81,6 +85,7 @@ def score(rows: list[dict], predictions: list[str]) -> dict:
         "false_negative_display": rupees(fn_paise),
         "step_up_caught": step_up_hits,
         "step_up_total": step_up_total,
+        "step_up_predicted": step_up_predicted,
     }
 
 
@@ -265,6 +270,11 @@ def main() -> None:
         )
 
     provider = resolve_provider(args.provider)
+    resolved_model = (
+        openai_provider.resolve_model(args.model) if provider == "openai"
+        else ANTHROPIC_MODEL if provider == "api"
+        else None
+    )
 
     approaches: dict[str, dict] = {}
 
@@ -274,7 +284,7 @@ def main() -> None:
         "metrics": score(rows, [BLOCK] * len(rows)), "run": {}}
 
     preds_rules, run_rules = run_engine(
-        rows, pub, False, provider, None, args.model, warmup_rows=warmup_rows, agents=agents
+        rows, pub, False, provider, None, resolved_model, warmup_rows=warmup_rows, agents=agents
     )
 
     approaches["rules_only"] = {
@@ -285,12 +295,12 @@ def main() -> None:
     # row still gets a verdict, the table still prints, and the numbers are the
     # fallback's rather than the model's. Say so, loudly, in the run itself.
     if provider not in ("heuristic", "off"):
-        _guard_degraded_run(rows, pub, provider, args.model)
+        _guard_degraded_run(rows, pub, provider, resolved_model)
 
     ledger_name = "ledger.jsonl" if not sampled else f"ledger_{sample_label}_{provider}.jsonl"
     ledger_path = os.path.join(HERE, ledger_name)
     preds_parchi, run_parchi = run_engine(rows, pub, True, provider, ledger_path,
-                                          args.model, args.timeout, warmup_rows, agents)
+                                          resolved_model, args.timeout, warmup_rows, agents)
 
     chain_ok, chain_msg, chain_n = verify_chain(ledger_path)
     approaches["parchi"] = {
@@ -305,8 +315,10 @@ def main() -> None:
                       for case in dict.fromkeys(row["case"] for row in rows)},
         },
         "intent_provider": provider,
+        "intent_model": resolved_model,
+        "intent_timeout_seconds": args.timeout,
         "approaches": approaches,
-        "ledger": {"path": os.path.relpath(ledger_path, ROOT),
+        "ledger": {"path": os.path.relpath(ledger_path, ROOT).replace(os.sep, "/"),
                    "chain_intact": chain_ok, "detail": chain_msg, "records": chain_n},
         "generated_at": int(time.time()),
     }
@@ -359,6 +371,14 @@ GATES = [
     lambda a: a["rules_only"]["metrics"]["recall"] >= 0.80),
     ("every high-value legitimate cart is routed to a human",
      lambda a: a["parchi"]["metrics"]["step_up_caught"] == a["parchi"]["metrics"]["step_up_total"]),
+    ("only expected high-value carts are routed to a human",
+     lambda a: a["parchi"]["metrics"]["step_up_predicted"]
+     == a["parchi"]["metrics"]["step_up_total"]),
+    ("no intent checks degrade in the reproducible offline run",
+     lambda a: a["parchi"]["run"]["degraded_rows"] == 0),
+    ("exact verdict accuracy never falls below the rules baseline",
+     lambda a: a["parchi"]["metrics"]["exact_verdict_accuracy"]
+     >= a["rules_only"]["metrics"]["exact_verdict_accuracy"]),
     ("precision stays at 100% - no false blocks at all",
      lambda a: a["parchi"]["metrics"]["precision"] == 1.0),
 ]

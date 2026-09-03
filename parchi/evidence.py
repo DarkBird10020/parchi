@@ -10,7 +10,7 @@ import json
 from typing import Any
 
 from .engine import Decision
-from .ledger import verify_chain
+from .ledger import Ledger, verify_chain
 from .mandate import Cart, IntentMandate, rupees
 
 SCHEMA_VERSION = "parchi-evidence/1"
@@ -46,7 +46,24 @@ def build_pack(
     }
     if ledger_path:
         ok, msg, n = verify_chain(ledger_path)
-        pack["ledger_chain"] = {"intact": ok, "detail": msg, "records": n}
+        bound = False
+        if ok and decision.ledger_hash:
+            try:
+                bound = any(
+                    rec.get("hash") == decision.ledger_hash
+                    and rec.get("txn", {}).get("txn_id") == decision.txn_id
+                    and rec.get("verdict") == decision.verdict
+                    for rec in Ledger(ledger_path).records()
+                )
+            except (KeyError, TypeError, ValueError):
+                ok = False
+                msg = "ledger contains an unreadable record"
+        pack["ledger_chain"] = {
+            "intact": ok,
+            "decision_bound": bound,
+            "detail": msg if bound or not ok else "decision is absent from the supplied ledger",
+            "records": n,
+        }
     return pack
 
 

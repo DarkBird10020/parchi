@@ -10,7 +10,7 @@ import os
 import pytest
 
 from parchi import openai_provider as op
-from parchi.intent_match import resolve_provider
+from parchi.intent_match import intent_matches, resolve_provider
 from parchi.mandate import Cart, CartLine, new_mandate
 
 
@@ -116,6 +116,24 @@ def test_provider_resolution_prefers_anthropic_then_openai_then_offline(monkeypa
     # An explicit choice is never overridden by what happens to be in the env.
     assert resolve_provider("off") == "off"
     assert resolve_provider("heuristic") == "heuristic"
+
+
+def test_automatic_offline_fallback_requires_human_confirmation():
+    m = new_mandate(payer_id="u", payee_id="p", allowed_methods=("upi",),
+                    max_amount_paise=500_000, allowed_categories=("sports",),
+                    prompt_playback="buy running shoes")
+    cart = Cart((CartLine("running watch", "sports", 300_000),), "upi", "p")
+    verdict = intent_matches(m, cart, provider="auto")
+    assert verdict.degraded and not verdict.match
+
+
+def test_plain_http_endpoint_uses_http_connection(monkeypatch):
+    monkeypatch.setenv("PARCHI_OPENAI_BASE_URL", "http://127.0.0.1:8001/v1")
+    op._drop_connection()
+    conn, prefix = op._connection(1)
+    assert conn.__class__.__name__ == "HTTPConnection"
+    assert prefix == "/v1"
+    op._drop_connection()
 
 
 def test_an_unreachable_endpoint_degrades_instead_of_crashing(monkeypatch):

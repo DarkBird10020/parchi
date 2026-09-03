@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-133%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-143%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -69,7 +69,7 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python -m pytest tests/ -q    # 133 tests
+python -m pytest tests/ -q    # 143 tests
 python tests/test_attacks.py  # 48 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```
@@ -174,34 +174,20 @@ under the cap. No rule can see either, which is why the model call is there at a
 
 ### The full model run
 
-Same 1,000 rows, one call per cart against `z-ai/glm-4.7-flash`
+Same 1,000-row dataset, one call per cart through the OpenAI-compatible backend
 ([`eval/results_model_full.json`](eval/results_model_full.json), ledger in
-[`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)).
-*This table is from the previous dataset; the new quantity/agent cases are being
-re-measured against a live endpoint.*
+[`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)). Future result
+files record resolved model and timeout so a run can be attributed exactly.
 
 | Approach | Catches violations | Blocks good customers | Degraded | Cost of the mistakes |
 |:--- |:--- |:--- |:--- |:--- |
-| Rules only | 235/260 (90.4%) | 0 | n/a | ₹1,20,785 paid out on violations |
-| **Parchi** *(rules + one model call)* | **255/260 (98.1%)** | 2 | 114 | ₹26,963 on missed violations + **₹34,404** of false blocks |
+| Rules only | 235/280 (83.9%) | 0 | n/a | ₹2,19,908 paid out on violations |
+| **Parchi** *(rules + one model call)* | **272/280 (97.1%)** | 12 | 0 | ₹45,058 on missed violations + **₹92,114** of false blocks |
 
-What the 40-row samples that came before could not show:
-
-- **The endpoint throttled under sustained load.** 114 of 1,000 calls degraded, a
-  trickle early and a wall late. Every degraded cart became `STEP_UP`, never
-  `ALLOW`: nothing was silently auto-approved, but ~100 legitimate customers
-  would have been asked "are you sure?" for no reason. **Fail-safe is not
-  fail-free**, and at 11% of traffic that friction is a product decision, not
-  a rounding error.
-- **The model made three real mistakes**: two false blocks (₹34,404, one a
-  legitimate ₹30,102 high-value cart) and one in-category injection it called
-  in-scope, `second pair, same shoe`, a quantity-inflation variant, the
-  recorded blind spot arriving through the intent check's front door.
-- Four more violations landed on `STEP_UP` via degradation instead of `BLOCK`.
-  That is the safe direction, but they are misses on the scoreboard.
-
-39/40 high-value legit carts still reached a human; the chain verifies across
-all 1,000 records. The post-mortem is [FAILURES.md](FAILURES.md) → entry 11.
+The full run had no degraded calls, but model judgement still produced eight
+missed violations and twelve false blocks. 38/40 high-value legitimate carts
+reached the human-confirmation path. These figures are reported as measured,
+not promoted as production guarantees.
 
 ### When the model dies
 
@@ -233,7 +219,7 @@ sees is not a control:
 |:--- |:--- |
 | The agent buys outside the approved categories | *"The agent tried to buy something outside the categories you approved"*, with the engine's own reason underneath |
 | Someone edits a past verdict in the log | *"Audit log has been altered"*, naming the record whose hash stopped matching |
-| The merchant ships something else | *"Refund issued automatically"*, with the amount that went back |
+| The merchant ships something else | *"Refund action required"* until Razorpay confirms processing |
 Those clear themselves after five seconds, so the **bell in the header** is where
 they stay readable. It carries an unread count, opens a history of everything
 raised, worst first, and each entry shows the severity, the class of attack, the
@@ -291,7 +277,7 @@ about exactly one of them. Every refusal is classified before it is reported:
 | Over the cap / outside the categories | `cap_breach`, `scope_breach` | high |
 | Quantity used to drain the budget | `quantity_abuse` | high |
 | Agent bought something unasked for | `intent_mismatch` | high |
-| Refund issued at settlement | `settlement_mismatch` | high |
+| Refund required at settlement | `settlement_mismatch` | high |
 | Slip outside its validity window | `expired_mandate` | info |
 
 Two of those are worth dwelling on. **`probing`** fires when the same actor is
@@ -358,7 +344,7 @@ the add-on the product page talked the agent into.
 
 ## Adversarial testing
 
-`python tests/test_attacks.py` runs **31 named attack patterns**, each with the
+`python tests/test_attacks.py` runs **48 named attack patterns**, each with the
 verdict Parchi must return, and prints a report.
 
 | Category | Patterns |
@@ -405,7 +391,7 @@ customer who was refused, so the repo does not rely on anyone remembering to run
 things.
 
 - **[`ci.yml`](.github/workflows/ci.yml)**, ruff, unit tests on Python
-  3.11/3.12/3.13, all 31 attack patterns, a check that the generated dataset is
+  3.11/3.12/3.13, all 48 attack patterns, a check that the generated dataset is
   **byte-identical** for a fixed seed, the scoreboard gate, a ledger-chain
   verification across all 1,000 records, and a job that boots the demo server and
   asserts every scenario's verdict.
@@ -554,7 +540,7 @@ parchi/
 ├── eval/evaluate.py     # precision, recall, false-positive rupee cost, baselines
 ├── tests/
 │   ├── test_parchi.py   # core tests, including one that tampers with the ledger
-│   └── test_attacks.py  # 31 adversarial patterns with the verdict each must get
+│   └── test_attacks.py  # 48 adversarial patterns with the verdict each must get
 ├── demo/                # fastapi server + the page in the video
 ├── docs/upi-mapping.md  # mandate fields mapped onto UPI Reserve Pay
 └── FAILURES.md          # what broke, what it actually was, what it cost

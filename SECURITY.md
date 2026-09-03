@@ -20,7 +20,7 @@ canonical bytes verify.
 
 | Attacker | Can do | Parchi's answer |
 |:--- |:--- |:--- |
-| A compromised or manipulated agent | Present any cart, any mandate, repeatedly | 8 deterministic checks, short-circuiting; one-time nonce |
+| A compromised or manipulated agent | Present any cart, any mandate, repeatedly | 12 deterministic checks, short-circuiting; one-time nonce |
 | A merchant | Write arbitrary product text the agent reads, and present someone else's mandate | Untrusted text is fenced as data in the model prompt; `payee` check scopes a mandate to one merchant |
 | Anyone holding a mandate | Edit a field, extend the window, widen the categories | Ed25519 over canonical JSON; any edit fails verification |
 | Anyone holding the log | Rewrite a past verdict | Hash-chained records; `verify_chain()` reports the break |
@@ -37,7 +37,7 @@ Every bypass known to me is a named, executable pattern:
 python tests/test_attacks.py
 ```
 
-31 patterns covering forging, tampering, time manipulation, payee substitution,
+48 patterns covering forging, tampering, time manipulation, payee substitution,
 amount arithmetic, quantity inflation, agent impersonation, Unicode confusables, replay,
 and prompt injection aimed at the one model call, each with the verdict Parchi must
 return. **Six of them got through on the first run.** See [FAILURES.md](FAILURES.md)
@@ -104,10 +104,10 @@ which is a Redis and an operational story rather than a hackathon file.
 
 Recorded rather than hidden:
 
-- **`quantity-inflation`**, five identical, allowed, under-cap items still read as
-  in-scope. No rule and no lexical check can distinguish one pair of shoes from five.
-- **The offline intent matcher** is a lexical stand-in, not a model. Numbers produced
-  with it are labelled `heuristic` everywhere they appear.
+- **The offline intent matcher** is a lexical benchmark, not a semantic model. Numbers
+  produced with explicit `provider="heuristic"` are labelled accordingly. Automatic
+  no-key operation treats it as degraded and requires human confirmation rather than
+  authorising payment.
 
 ## Reporting
 

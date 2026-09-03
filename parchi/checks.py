@@ -244,8 +244,10 @@ def check_prices(cart: Cart, prices: PriceBook | None) -> CheckResult:
     nobody can check is not the same as a claim that checked out, and the
     difference belongs in the evidence pack.
     """
-    if prices is None or not len(prices):
+    if prices is None:
         return CheckResult("prices", True, "no price book configured, line prices not verified")
+    if not len(prices):
+        return CheckResult("prices", False, "configured price book is empty")
     for line in cart.lines:
         listed = prices.get(line.description)
         if listed is None:

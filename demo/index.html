@@ -931,14 +931,15 @@ async function settleAuthorization(){
         "What the merchant shipped is what you authorised.", null);
     } else {
       const got = r.delivered.lines.map(l => l.description).join(", ");
-      notify("money", "Refund issued automatically",
-        "The merchant shipped something other than what you approved, so "
-        + r.refund.display + " has gone back to you. Nobody had to notice or complain.",
+      const refundIssued = r.state === "REFUNDED";
+      notify("money", refundIssued ? "Refund processed" : "Refund action required",
+        "The merchant shipped something other than what you approved. "
+        + r.refund.display + (refundIssued ? " has gone back to you." : " must be refunded."),
         "delivered: " + got + "  |  " + r.refund.reason);
       $("#verdict").className = "stamp BLOCK fade";
-      $("#verdict").textContent = "REFUNDED";
+      $("#verdict").textContent = r.state;
       $("#reason").textContent = "Settlement did not match the signed mandate. "
-        + r.refund.display + " refunded.";
+        + r.refund.display + (refundIssued ? " refunded." : " requires refund processing.");
     }
     loadLedger();
     loadAlerts();
@@ -986,7 +987,7 @@ async function run(id, btn){
   $("#checks").innerHTML = d.checks.map(checkRow).join("") + intentRow(d.intent);
   $("#evidence").textContent = JSON.stringify(r.evidence, null, 2);
   currentAuthorization = r.authorization_id;
-  currentApprovalToken = r.approval_token;
+  currentApprovalToken = null;
   $("#btnApprove").hidden = r.state !== "PENDING";
   $("#btnPay").hidden = !razorpayConfigured || r.state !== "ALLOW";
   // Only an authorised purchase can be settled, which is the whole gap this
@@ -1001,6 +1002,12 @@ async function approveStepUp(){
   const button = $("#btnApprove");
   button.disabled = true;
   try {
+    const humanSecret = prompt("Enter human approval secret from server environment");
+    if (!humanSecret) throw new Error("Human approval cancelled");
+    const token = await api(`/api/human/approval-token/${currentAuthorization}`, {
+      headers:{"X-Parchi-Human-Secret": humanSecret}
+    });
+    currentApprovalToken = token.approval_token;
     const r = await api("/api/approve", {
       method:"POST", headers:{"content-type":"application/json"},
       body: JSON.stringify({

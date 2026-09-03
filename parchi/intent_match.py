@@ -309,6 +309,7 @@ def intent_matches(
     provider: str = "auto",
     model: str | None = None,
 ) -> IntentVerdict:
+    requested_provider = provider
     provider = resolve_provider(provider)
     label = provider
     try:
@@ -330,6 +331,13 @@ def intent_matches(
             raise IntentUnavailable("intent check returned a non-boolean match")
         if not isinstance(d.get("reason"), str) or not d["reason"].strip():
             raise IntentUnavailable("intent check returned an invalid reason")
+        if requested_provider == "auto" and provider == "heuristic":
+            return IntentVerdict(
+                match=False,
+                reason="no live intent provider configured - human confirmation required",
+                degraded=True,
+                provider=label,
+            )
         return IntentVerdict(d["match"], d["reason"][:400], False, label)
     except Exception as exc:
         # DEGRADED PATH - this is the failure you demo.

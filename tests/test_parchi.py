@@ -26,6 +26,7 @@ from parchi.mandate import (
     CartLine,
     IntentMandate,
     new_mandate,
+    rupees,
     sign,
     sign_cart,
     verify,
@@ -97,6 +98,27 @@ def test_signature_fails_when_a_single_field_is_edited():
     tampered = IntentMandate.from_dict({**m.to_dict(), "max_amount_paise": 50_000_000})
     assert verify(m, sig, PUB)
     assert not verify(tampered, sig, PUB)
+
+
+def test_json_deserializers_reject_coerced_integer_types():
+    m = a_mandate().to_dict()
+    m["max_amount_paise"] = "500000"
+    try:
+        IntentMandate.from_dict(m)
+        raise AssertionError("numeric string was accepted")
+    except TypeError:
+        pass
+    cart = a_cart().to_dict()
+    cart["lines"][0]["quantity"] = 1.5
+    try:
+        Cart.from_dict(cart)
+        raise AssertionError("float quantity was accepted")
+    except TypeError:
+        pass
+
+
+def test_currency_formatting_stays_exact_for_large_integers():
+    assert rupees(10**400 + 7) == f"Rs {10**398:,}.07"
 
 
 # --------------------------------------------------------------------------
@@ -302,6 +324,15 @@ def test_ledger_records_the_approvals_too():
         assert verdicts == [ALLOW, BLOCK]
 
 
+def test_malformed_ledger_is_reported_instead_of_crashing():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "ledger.jsonl")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write('{"partial":')
+        ok, msg, n = verify_chain(path)
+        assert not ok and n == 1 and "valid JSON" in msg
+
+
 # --------------------------------------------------------------------------
 # the evidence pack
 # --------------------------------------------------------------------------
@@ -319,11 +350,27 @@ def test_evidence_pack_carries_everything_a_dispute_needs():
         assert pack["signature"] == sig
         assert pack["mandate"]["prompt_playback"] == m.prompt_playback
         assert pack["ledger_chain"]["intact"] is True
+        assert pack["ledger_chain"]["decision_bound"] is True
         assert {c["name"] for c in pack["checks"]} == {
             "signature", "expiry", "payee", "method", "line_items",
             "line_quantity", "prices", "category", "discount", "amount_cap",
             "agent_identity", "nonce_replay"}
         json.dumps(pack)  # the pack must be serialisable as-is
+
+
+def test_evidence_rejects_an_unrelated_intact_ledger():
+    with tempfile.TemporaryDirectory() as tmp:
+        real_path = os.path.join(tmp, "real.jsonl")
+        other_path = os.path.join(tmp, "other.jsonl")
+        m, cart = a_mandate(), a_cart()
+        sig = sign(m, KEY)
+        decision = engine(ledger=Ledger(real_path)).authorize(
+            m, sig, PUB, cart, now=NOW, txn_id="txn_real")
+        Ledger(other_path).append("other", {"txn_id": "txn_other"}, [], ALLOW)
+        pack = build_pack(
+            m, sig, cart, decision, PUB.public_bytes_raw().hex(), ledger_path=other_path)
+        assert pack["ledger_chain"]["intact"] is True
+        assert pack["ledger_chain"]["decision_bound"] is False
 
 
 if __name__ == "__main__":

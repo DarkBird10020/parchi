@@ -450,6 +450,69 @@ The rate of `degraded` is the number to watch, not just the verdict.
 
 ---
 
+### 15. Two fixes for the same eight false blocks, both measured, both worse
+
+**Broke.** The first honest full-batch run against a real model came back with
+recall 98.9% and precision 97.2%, and **8 legitimate carts refused, Rs 49,279**.
+Reading the model's own reasons, all eight had the same cause: it was doing
+arithmetic on a price.
+
+> *"The cart contains a single coffee bean item, but the human requested coffee
+> beans under Rs 10,000, which implies..."*
+
+**Assumed.** That the cap was still reaching the model. It is not in the prompt,
+that was fixed in entry 10, so I looked for the second route and found it: the
+playback is the human's own sentence, and humans write *"buy coffee beans under
+Rs 5,000"*. The budget arrives inside the thing the model is supposed to be
+matching against.
+
+**Attempt one.** Tell it to ignore a budget in the playback. Full batch, same
+1,000 rows:
+
+| | recall | precision | false-block cost |
+| :--- | ---: | ---: | ---: |
+| before | 98.9% | 97.2% | Rs 49,279 |
+| after | **97.1%** | **95.8%** | **Rs 92,114** |
+
+Worse on both, and the cost nearly doubled.
+
+**Actually.** The instruction did not remove the behaviour, it relocated it. The
+model stopped citing the budget and started objecting to prices on their own
+terms:
+
+> *"a single item priced at Rs 6,340.37, which is not a standard price for..."*
+
+Told not to compare against the stated budget, it invented a different price
+judgement instead of dropping price reasoning altogether.
+
+**Attempt two.** Forbid price reasoning of every kind: not the budget, not
+whether an item looks expensive, not whether the amount seems normal. Full batch
+again: **recall 96.4%, precision 96.1%, Rs 90,402**. Still worse than saying
+nothing.
+
+**Changed.** Reverted to the wording that measured best, which is the entry 10
+version. The prompt now carries a comment pointing here, so the next person to
+have this idea, including me, has to read the two runs that already tried it.
+
+**Cost.** Three full batches, roughly two hours of wall clock, to arrive back
+where I started. Worth writing down for two reasons.
+
+The first is that both attempts were *reasonable*, and both were wrong, and the
+only thing that separated the hypothesis from the outcome was running it on 1,000
+rows. A 25-row sample would not have resolved a difference of this size, and
+eyeballing a handful of reasons would have confirmed whichever story I already
+believed.
+
+The second is the shape of the failure. Adding a rule to a prompt does not delete
+a behaviour, it moves it. The model wants to talk about price because price is in
+front of it, and each instruction only closes one of the ways it can. The
+durable version of this fix is not better wording, it is not showing the model a
+price it has no job to judge, and the reason that is hard here is that the price
+is genuinely useful for the one thing it *is* asked: recognising an add-on the
+human never mentioned. That trade is still unresolved.
+
+---
+
 ### Resolved (was "Still unsolved")
 
 The headline number is now a model number. The full 1,000-row run against

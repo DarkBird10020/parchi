@@ -20,6 +20,12 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PublicKey,
 )
 
+
+def _integer(value: Any, field: str) -> int:
+    if type(value) is not int:
+        raise TypeError(f"{field} must be an integer")
+    return value
+
 # A cart at or above this value is never waved through on rules alone.
 STEP_UP_PAISE = 1_000_000  # Rs 10,000
 
@@ -93,11 +99,11 @@ class IntentMandate:
             payer_id=d["payer_id"],
             payee_id=d["payee_id"],
             allowed_methods=tuple(d["allowed_methods"]),
-            max_amount_paise=int(d["max_amount_paise"]),
+            max_amount_paise=_integer(d["max_amount_paise"], "max_amount_paise"),
             allowed_categories=tuple(d["allowed_categories"]),
             prompt_playback=d["prompt_playback"],
-            issued_at=int(d["issued_at"]),
-            expires_at=int(d["expires_at"]),
+            issued_at=_integer(d["issued_at"], "issued_at"),
+            expires_at=_integer(d["expires_at"], "expires_at"),
             nonce=d["nonce"],
             allowed_agent_id=str(d.get("allowed_agent_id", "")),
         )
@@ -174,8 +180,8 @@ class Cart:
                 CartLine(
                     description=line["description"],
                     category=line["category"],
-                    amount_paise=int(line["amount_paise"]),
-                    quantity=int(line.get("quantity", 1)),
+                    amount_paise=_integer(line["amount_paise"], "amount_paise"),
+                    quantity=_integer(line.get("quantity", 1), "quantity"),
                 )
                 for line in d["lines"]
             ),
@@ -185,7 +191,7 @@ class Cart:
             agent_id=d.get("agent_id", ""),
             agent_signature=d.get("agent_signature", ""),
             discount_code=d.get("discount_code", ""),
-            discount_paise=int(d.get("discount_paise", 0) or 0),
+            discount_paise=_integer(d.get("discount_paise", 0), "discount_paise"),
         )
 
 
@@ -253,4 +259,6 @@ def new_mandate(
 
 def rupees(paise: int) -> str:
     """Money is integers everywhere; this is the only place it becomes prose."""
-    return f"Rs {paise / 100:,.2f}"
+    sign = "-" if paise < 0 else ""
+    whole, fraction = divmod(abs(paise), 100)
+    return f"Rs {sign}{whole:,}.{fraction:02d}"

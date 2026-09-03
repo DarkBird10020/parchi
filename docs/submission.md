@@ -71,7 +71,7 @@ published next to the heuristic one rather than blended into it.
 
 The held-out set (`python eval/heldout.py`) is the number that answers "is this
 overfit to its own generator": **13/13 hand-written cases, 100% precision, 0
-false blocks**, in CI next to the 31-pattern attack suite.
+false blocks**, in CI next to the 48-pattern attack suite.
 
 ## What is deliberately not claimed
 

@@ -33,3 +33,6 @@ eval/results_sample_*.json
 eval/_*.json
 eval/_*.jsonl
 _block*.mjs
+
+# Build metadata from `pip install -e .`
+*.egg-info/

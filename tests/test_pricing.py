@@ -125,6 +125,12 @@ def test_no_price_book_passes_but_says_it_verified_nothing():
     assert "not verified" in r.reason
 
 
+def test_a_configured_empty_price_book_fails_closed():
+    r = check_prices(cart(), PriceBook({}))
+    assert not r.passed
+    assert "empty" in r.reason
+
+
 def test_a_line_priced_differently_from_the_book_is_refused():
     book = PriceBook({"running shoes": 420_000})
     assert check_prices(cart(amount=420_000), book).passed

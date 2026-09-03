@@ -119,14 +119,16 @@ class CallBudget:
     def __init__(self, limit: int) -> None:
         self.limit = limit
         self.used = 0
+        self._lock = threading.Lock()
 
     def spend(self) -> None:
-        if self.used >= self.limit:
-            raise RuntimeError(
-                f"model call budget exhausted ({self.limit} calls). "
-                f"Raise PARCHI_MAX_CALLS if this batch really is that large."
-            )
-        self.used += 1
+        with self._lock:
+            if self.used >= self.limit:
+                raise RuntimeError(
+                    f"model call budget exhausted ({self.limit} calls). "
+                    f"Raise PARCHI_MAX_CALLS if this batch really is that large."
+                )
+            self.used += 1
 
 
 _BUDGET: CallBudget | None = None
@@ -223,10 +225,11 @@ _LOCAL = threading.local()
 
 def _connection(timeout: float):
     parsed = urllib.parse.urlparse(base_url())
-    key = (parsed.hostname, parsed.port, timeout)
+    key = (parsed.scheme, parsed.hostname, parsed.port, timeout)
     conn = getattr(_LOCAL, "conn", None)
     if conn is None or getattr(_LOCAL, "key", None) != key:
-        conn = http.client.HTTPSConnection(parsed.hostname, parsed.port, timeout=timeout)
+        connection = http.client.HTTPConnection if parsed.scheme == "http" else http.client.HTTPSConnection
+        conn = connection(parsed.hostname, parsed.port, timeout=timeout)
         _LOCAL.conn = conn
         _LOCAL.key = key
     return conn, parsed.path.rstrip("/")
@@ -349,7 +352,6 @@ def _request(prompt: str, timeout: float, model: str | None,
     connection, the reconnect-once-on-transport-error rule, key redaction, and the
     fallback for endpoints that do not implement json_schema.
     """
-    budget().spend()
     body = {
         "model": model or resolve_model(),
         "messages": [{"role": "user", "content": prompt}],
@@ -369,9 +371,10 @@ def _request(prompt: str, timeout: float, model: str | None,
     # processed, so reconnecting is not a second judgement, it is the first one
     # sent down a live socket. An HTTP status is never retried: a 429 or a 500 is
     # the endpoint's answer, and this call sits in front of a payment.
-    last = None
-    for attempt in (1, 2):
+    transport_failures = 0
+    while True:
         try:
+            budget().spend()
             conn, prefix = _connection(timeout)
             conn.request("POST", prefix + "/chat/completions", body=data, headers=headers)
             resp = conn.getresponse()
@@ -397,12 +400,10 @@ def _request(prompt: str, timeout: float, model: str | None,
             _drop_connection()
             raise
         except Exception as exc:
-            last = exc
+            transport_failures += 1
             _drop_connection()
-            if attempt == 2:
+            if transport_failures >= 2:
                 raise RuntimeError(redact(f"{type(exc).__name__}: {exc}")) from None
-    else:  # pragma: no cover - the loop always breaks or raises
-        raise RuntimeError(redact(str(last)))
     return payload["choices"][0]["message"]["content"]
 
 

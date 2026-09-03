@@ -33,6 +33,24 @@ class RazorpayOrder:
         }
 
 
+@dataclass(frozen=True)
+class RazorpayRefund:
+    id: str
+    payment_id: str
+    amount: int
+    currency: str
+    status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "payment_id": self.payment_id,
+            "amount": self.amount,
+            "currency": self.currency,
+            "status": self.status,
+        }
+
+
 class RazorpayClient:
     def __init__(
         self,
@@ -91,6 +109,37 @@ class RazorpayClient:
         if not str(result.get("id", "")).startswith("order_"):
             raise RazorpayError("Razorpay returned an invalid order id")
         return RazorpayOrder(result["id"], result["amount"], result["currency"], result["status"])
+
+    def refund_payment(self, payment_id: str, amount_paise: int) -> RazorpayRefund:
+        if not payment_id.startswith("pay_") or type(amount_paise) is not int or amount_paise <= 0:
+            raise RazorpayError("invalid Razorpay refund request")
+        payload = json.dumps({"amount": amount_paise, "speed": "normal"}).encode()
+        token = base64.b64encode(f"{self.key_id}:{self._secret}".encode()).decode()
+        request = urllib.request.Request(
+            f"https://api.razorpay.com/v1/payments/{payment_id}/refund",
+            data=payload,
+            headers={"Authorization": f"Basic {token}", "Content-Type": "application/json"},
+            method="POST",
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                result = json.loads(response.read())
+        except urllib.error.HTTPError as exc:
+            raise RazorpayError(f"Razorpay Refunds API returned HTTP {exc.code}") from None
+        except Exception as exc:
+            raise RazorpayError(f"Razorpay Refunds API unavailable ({type(exc).__name__})") from None
+        if not isinstance(result, dict):
+            raise RazorpayError("Razorpay returned an invalid refund")
+        if result.get("payment_id") != payment_id:
+            raise RazorpayError("Razorpay refund payment mismatch")
+        if result.get("amount") != amount_paise or result.get("currency") != "INR":
+            raise RazorpayError("Razorpay refund amount or currency mismatch")
+        if not str(result.get("id", "")).startswith("rfnd_") or not result.get("status"):
+            raise RazorpayError("Razorpay returned an invalid refund")
+        return RazorpayRefund(
+            result["id"], result["payment_id"], result["amount"], result["currency"],
+            result["status"],
+        )
 
     def verify_checkout_signature(self, order_id: str, payment_id: str, signature: str) -> bool:
         expected = hmac.new(

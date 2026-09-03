@@ -15,6 +15,7 @@ client = TestClient(server.app)
 
 def setup_function():
     server.engine.provider = "heuristic"
+    server.HUMAN_APPROVAL_SECRET = ""
     client.post("/api/reset")
 
 
@@ -48,18 +49,31 @@ def test_generic_api_rejects_an_unregistered_payer():
 def test_step_up_can_be_approved_once():
     started = client.post("/api/authorize", json={"scenario": "step_up"}).json()
     assert started["state"] == "PENDING"
+    server.HUMAN_APPROVAL_SECRET = "human-secret"
+    token = client.get(
+        f"/api/human/approval-token/{started['authorization_id']}",
+        headers={"X-Parchi-Human-Secret": "human-secret"},
+    ).json()["approval_token"]
     approved = client.post("/api/approve", json={
         "txn_id": started["authorization_id"],
-        "approval_token": started["approval_token"], "approve": True,
+        "approval_token": token, "approve": True,
     })
     assert approved.status_code == 200
     assert approved.json()["state"] == "APPROVED"
     assert approved.json()["decision"]["verdict"] == "ALLOW"
     repeated = client.post("/api/approve", json={
         "txn_id": started["authorization_id"],
-        "approval_token": started["approval_token"], "approve": True,
+        "approval_token": token, "approve": True,
     })
     assert repeated.status_code == 409
+
+
+def test_step_up_token_is_not_returned_to_initiator():
+    started = client.post("/api/authorize", json={"scenario": "step_up"}).json()
+    assert "approval_token" not in started
+    assert client.get(
+        f"/api/human/approval-token/{started['authorization_id']}"
+    ).status_code == 503
 
 
 def test_step_up_rejects_a_guessed_approval_token():
@@ -118,7 +132,9 @@ def _webhook_client(monkeypatch, order):
 def _signed_event(event, order_id, payment_id="pay_1"):
     raw = json.dumps({
         "event": event,
-        "payload": {"payment": {"entity": {"id": payment_id, "order_id": order_id}}},
+        "payload": {"payment": {"entity": {
+            "id": payment_id, "order_id": order_id, "amount": 420_000, "currency": "INR",
+        }}},
     }).encode()
     return raw, hmac_mod.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
 
@@ -145,6 +161,39 @@ def test_captured_webhook_closes_the_loop_and_ledgers_it(monkeypatch):
     assert entry["txn"]["event"] == "payment_captured"
     assert entry["txn"]["txn_id"] == txn_id and entry["txn"]["razorpay_payment_id"] == "pay_1"
     assert os.path.exists(server.LEDGER_PATH)
+
+
+def test_duplicate_webhook_event_is_idempotent(monkeypatch):
+    txn_id = _webhook_client(monkeypatch, RazorpayOrder("order_dup", 420_000, "INR", "created"))
+    raw, signature = _signed_event("payment.captured", "order_dup")
+    headers = {"X-Razorpay-Signature": signature, "X-Razorpay-Event-Id": "evt_1"}
+    assert client.post("/api/razorpay/webhook", content=raw, headers=headers).status_code == 200
+    before = len(list(server.engine.ledger.records()))
+    repeated = client.post("/api/razorpay/webhook", content=raw, headers=headers)
+    assert repeated.json()["duplicate"] is True
+    assert len(list(server.engine.ledger.records())) == before
+    assert server.authorizations[txn_id]["state"] == "CAPTURED"
+
+
+def test_refund_webhook_uses_refund_payload_and_payment_id(monkeypatch):
+    txn_id = _webhook_client(monkeypatch, RazorpayOrder("order_ref", 420_000, "INR", "created"))
+    captured, captured_sig = _signed_event("payment.captured", "order_ref", "pay_ref")
+    assert client.post("/api/razorpay/webhook", content=captured, headers={
+        "X-Razorpay-Signature": captured_sig,
+    }).status_code == 200
+    raw = json.dumps({
+        "event": "refund.processed",
+        "payload": {"refund": {"entity": {
+            "id": "rfnd_1", "payment_id": "pay_ref", "amount": 420_000,
+            "currency": "INR", "status": "processed",
+        }}},
+    }).encode()
+    signature = hmac_mod.new(WEBHOOK_SECRET.encode(), raw, hashlib.sha256).hexdigest()
+    response = client.post("/api/razorpay/webhook", content=raw, headers={
+        "X-Razorpay-Signature": signature,
+    })
+    assert response.status_code == 200
+    assert server.authorizations[txn_id]["state"] == "REFUNDED"
 
 
 def test_failed_webhook_marks_the_authorization_failed(monkeypatch):
@@ -204,7 +253,7 @@ def test_a_product_outside_the_category_is_declined_with_a_readable_reason():
     assert "electronics" in failed["reason"] and "footwear" in failed["reason"]
 
 
-def test_a_substituted_delivery_is_refunded_without_anyone_complaining():
+def test_a_substituted_delivery_requires_a_real_refund():
     """The checkpoint runs before the money moves, which leaves a gap: an agent
     can be authorised for one thing and the merchant can ship another. The signed
     mandate is still the record of what was agreed, so it is checked again."""
@@ -215,7 +264,7 @@ def test_a_substituted_delivery_is_refunded_without_anyone_complaining():
     assert r.status_code == 200
     body = r.json()
     assert body["matched"] is False
-    assert body["state"] == "REFUNDED"
+    assert body["state"] == "REFUND_REQUIRED"
     assert body["refund"]["check"] == "category"
     assert body["refund"]["amount_paise"] > 0
     # The refund is a ledger record like any other verdict, not a side note.
@@ -241,7 +290,7 @@ def test_the_refund_verdict_is_written_into_the_hash_chain():
     client.post("/api/settle", json={"txn_id": authorized["authorization_id"]})
     ledger = client.get("/api/ledger?limit=20").json()
     verdicts = [rec["verdict"] for rec in ledger["records"]]
-    assert "REFUNDED" in verdicts
+    assert "REFUND_REQUIRED" in verdicts
     assert ledger["chain"]["intact"] is True
 
 
@@ -304,7 +353,7 @@ def test_an_alert_webhook_failure_never_breaks_the_request(monkeypatch):
     authorized = client.post("/api/authorize", json={"scenario": "allow"}).json()
     r = client.post("/api/settle", json={"txn_id": authorized["authorization_id"]})
     assert r.status_code == 200
-    assert r.json()["state"] == "REFUNDED"
+    assert r.json()["state"] == "REFUND_REQUIRED"
 
 
 def test_reset_clears_alerts_so_a_demo_starts_clean():

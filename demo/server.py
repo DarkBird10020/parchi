@@ -45,6 +45,8 @@ from parchi.openai_provider import load_dotenv
 from parchi.razorpay import RazorpayClient, RazorpayError
 from parchi.threat import CRITICAL, ProbeDetector, classify
 
+load_dotenv()
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 LEDGER_PATH = os.path.join(HERE, "ledger.jsonl")
@@ -78,8 +80,8 @@ DEMO_TIMEOUT = float(os.environ.get("PARCHI_DEMO_TIMEOUT", "25"))
 
 engine = Engine(ledger=Ledger(LEDGER_PATH), nonces=nonces, agents=agents,
                 provider="auto", timeout=DEMO_TIMEOUT)
-load_dotenv()
 razorpay = RazorpayClient.from_env()
+HUMAN_APPROVAL_SECRET = os.environ.get("PARCHI_HUMAN_APPROVAL_SECRET", "").strip()
 state_lock = threading.Lock()
 authorizations: dict[str, dict[str, Any]] = {}
 trusted_keys = {"usr_demo": PUB}
@@ -401,6 +403,7 @@ def remember_authorization(
             "payment_id": None,
             "approval_token": secrets.token_urlsafe(32),
             "order_pending": False,
+            "webhook_events": set(),
         }
     return state
 
@@ -514,11 +517,8 @@ def authorize(req: AuthorizeRequest):
     if decision.verdict != "BLOCK" and req.scenario != "replay":
         last_authorized = {"mandate": m.to_dict(), "cart": cart.to_dict(), "signature": sig}
 
-    approval_token = None
     if decision.verdict != BLOCK:
         remember_authorization(txn_id, m, sig, cart, decision)
-        if decision.verdict == STEP_UP:
-            approval_token = authorizations[txn_id]["approval_token"]
 
     pack = build_pack(m, sig, cart, decision, PUB_HEX, ledger_path=LEDGER_PATH)
     return {
@@ -533,7 +533,6 @@ def authorize(req: AuthorizeRequest):
         "evidence": pack,
         "authorization_id": txn_id,
         "state": "PENDING" if decision.verdict == STEP_UP else decision.verdict,
-        "approval_token": approval_token,
         "threat": threat,
         "razorpay": {"configured": razorpay is not None, "mode": "test" if razorpay else None},
     }
@@ -610,6 +609,22 @@ def approve(req: ApprovalRequest):
     return authorization_response(req.txn_id, record)
 
 
+@app.get("/api/human/approval-token/{txn_id}")
+def human_approval_token(txn_id: str, request: Request):
+    if not HUMAN_APPROVAL_SECRET:
+        raise HTTPException(503, "human approval channel is not configured")
+    supplied = request.headers.get("X-Parchi-Human-Secret", "")
+    if not secrets.compare_digest(HUMAN_APPROVAL_SECRET, supplied):
+        raise HTTPException(403, "invalid human approval secret")
+    with state_lock:
+        record = authorizations.get(txn_id)
+        if record is None:
+            raise HTTPException(404, "authorization not found")
+        if record["state"] != "PENDING":
+            raise HTTPException(409, f"authorization is already {record['state']}")
+        return {"approval_token": record["approval_token"]}
+
+
 @app.post("/api/razorpay/order")
 def create_razorpay_order(req: OrderRequest):
     if razorpay is None:
@@ -681,7 +696,15 @@ async def razorpay_webhook(request: Request):
     """
     if razorpay is None or not razorpay.webhooks_configured:
         raise HTTPException(503, "Razorpay webhooks are not configured")
+    length = request.headers.get("content-length")
+    try:
+        if length and int(length) > 1_000_000:
+            raise HTTPException(413, "webhook body is too large")
+    except ValueError:
+        raise HTTPException(400, "invalid Content-Length header") from None
     raw = await request.body()
+    if len(raw) > 1_000_000:
+        raise HTTPException(413, "webhook body is too large")
     signature = request.headers.get("X-Razorpay-Signature", "")
     if not signature:
         raise HTTPException(400, "missing X-Razorpay-Signature header")
@@ -696,22 +719,45 @@ async def razorpay_webhook(request: Request):
     if kind not in WEBHOOK_EVENTS:
         # Acknowledge so Razorpay stops retrying; nothing here closes the loop.
         return {"ok": True, "event": kind, "matched": False}
-    payload = (event.get("payload") or {})
+    payload = event.get("payload") or {}
     payment_entity = ((payload.get("payment") or {}).get("entity") or {})
-    payment_id = payment_entity.get("id", "")
+    refund_entity = ((payload.get("refund") or {}).get("entity") or {})
+    entity = refund_entity if kind == "refund.processed" else payment_entity
+    payment_id = entity.get("payment_id", "") if kind == "refund.processed" else entity.get("id", "")
     order_id = payment_entity.get("order_id", "")
+    event_id = request.headers.get("X-Razorpay-Event-Id", "")
 
     with state_lock:
-        record = next(
-            (r for r in authorizations.values() if r["order"] and r["order"].id == order_id),
-            None,
-        )
+        record = next((r for r in authorizations.values() if (
+            r.get("payment_id") == payment_id if kind == "refund.processed"
+            else r["order"] and r["order"].id == order_id
+        )), None)
         if record is None:
             # Unknown order: acknowledge so Razorpay stops retrying. Forging a
             # 200 for an unverified order would be the bug this endpoint exists
             # to prevent, and the signature already proved authenticity.
             return {"ok": True, "event": kind, "matched": False}
         txn_id = next(t for t, r in authorizations.items() if r is record)
+        if event_id and event_id in record["webhook_events"]:
+            return {"ok": True, "event": kind, "matched": True,
+                    "authorization_id": txn_id, "duplicate": True}
+
+        if kind == "payment.captured":
+            if entity.get("amount") != record["cart"].total_paise or entity.get("currency") != "INR":
+                raise HTTPException(409, "captured amount or currency does not match authorization")
+            if record["state"] not in {ALLOW, "APPROVED", "CAPTURED"}:
+                raise HTTPException(409, f"capture cannot follow {record['state']}")
+        elif kind == "payment.failed" and record["state"] in {"CAPTURED", "REFUND_PENDING", "REFUNDED"}:
+            raise HTTPException(409, f"failure cannot follow {record['state']}")
+        elif kind == "refund.processed" and record["state"] not in {"CAPTURED", "REFUND_PENDING", "REFUNDED"}:
+            raise HTTPException(409, f"refund cannot follow {record['state']}")
+        if kind == "refund.processed" and (
+            entity.get("amount") != record["cart"].total_paise
+            or entity.get("currency") != "INR"
+        ):
+            raise HTTPException(409, "refund amount or currency does not match authorization")
+        if event_id:
+            record["webhook_events"].add(event_id)
 
     outcomes = {
         "payment.captured": ("CAPTURED", "payment_captured"),
@@ -720,6 +766,8 @@ async def razorpay_webhook(request: Request):
     }
     state, event_name = outcomes[kind]
     with state_lock:
+        if record["payment_id"] not in (None, payment_id):
+            raise HTTPException(409, "event payment does not match authorization")
         record["payment_id"] = payment_id or record["payment_id"]
         record["state"] = state
     engine.ledger.append(
@@ -762,7 +810,8 @@ def settle(req: SettleRequest):
         record = authorizations.get(req.txn_id)
         if record is None:
             raise HTTPException(404, "authorization not found")
-        if record["state"] not in ("ALLOW", "CAPTURED"):
+        allowed_states = {"CAPTURED"} if razorpay is not None else {"ALLOW", "APPROVED"}
+        if record["state"] not in allowed_states:
             raise HTTPException(409, f"nothing to settle: authorization is {record['state']}")
         if record.get("settled"):
             raise HTTPException(409, "this authorization has already been settled")
@@ -793,20 +842,25 @@ def settle(req: SettleRequest):
             "reason": failed.reason,
             "check": failed.name,
         }
-        if razorpay is not None and record.get("payment_id"):
-            refund["razorpay"] = "test-mode refund would be issued here"
+        if razorpay is not None:
+            try:
+                issued = razorpay.refund_payment(record["payment_id"], authorised.total_paise)
+            except RazorpayError as exc:
+                raise HTTPException(502, str(exc)) from None
+            refund["razorpay"] = issued.to_dict()
 
     with state_lock:
         record["settled"] = True
         record["delivered"] = delivered
         if not matched:
-            record["state"] = "REFUNDED"
+            record["state"] = "REFUND_PENDING" if razorpay is not None else "REFUND_REQUIRED"
             record["refund"] = refund
 
     if not matched:
         raise_alert(
             "settlement_mismatch", "high",
-            f"Refund issued: {refund['display']}",
+            f"Refund initiated: {refund['display']}" if razorpay is not None
+            else f"Refund required: {refund['display']}",
             f"Authorised {[ln.description for ln in authorised.lines]}, "
             f"delivered {[ln.description for ln in delivered.lines]}. {failed.reason}",
             txn_id=req.txn_id,
@@ -819,7 +873,7 @@ def settle(req: SettleRequest):
              "lines": [ln.to_dict() for ln in delivered.lines],
              "stage": "settlement"},
         checks=[c.to_dict() for c in checks],
-        verdict="REFUNDED" if not matched else "SETTLED",
+        verdict=record["state"] if not matched else "SETTLED",
         degraded=False,
         intent=None,
     )
@@ -1029,4 +1083,5 @@ def results():
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
+    uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"),
+                port=int(os.environ.get("PORT", 8000)))

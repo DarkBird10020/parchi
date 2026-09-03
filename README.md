@@ -177,25 +177,51 @@ blocked genuine customer is money the merchant lost.
 | Allow everything | 0/280 (0%) | 0 | **₹17,83,157** paid out on violations |
 | Block all agent traffic | 280/280 (100%) | 720 | **₹33,73,331** of good revenue gone |
 | Rules only *(the day-2 baseline)* | 235/280 (83.9%) | 0 | ₹2,19,908 paid out on violations |
-| **Parchi** *(rules + one model call)* | **280/280 (100%)** | **0** | **₹0** |
+| **Parchi** *(rules + a real model call)* | **278/280 (99.3%)** | 22 | **₹1,59,521** |
 
-<img src="docs/images/scoreboard.jpg" alt="Scoreboard: cost of the mistakes across four approaches" width="100%">
-
-Plus **40/40** legitimate high-value carts routed to a human instead of
+Plus **38/40** legitimate high-value carts routed to a human instead of
 auto-approved, and a ledger chain intact across all 1,000 records.
+
+> [!IMPORTANT]
+> **That Parchi row is the run against a real model**, because a row produced
+> by an offline stand-in would not be evidence for the thing this project is
+> claiming. The same dataset scored with the offline matcher instead reads
+> 280/280, zero false blocks, ₹0, and that number is [further
+> down](#what-a-no-key-reproduction-gets) rather than here. A hundred percent
+> on data I generated, against attacks I designed, defended by rules I wrote,
+> is a closed loop, and putting it at the top would invite exactly the
+> dismissal it deserves.
+>
+> The measurements worth arguing with are the [component
+> attribution](#the-confusion-matrix-and-which-component-earned-which-number),
+> which shows the model producing every false block in the run, and the
+> [attacks written by something that has never seen the
+> rules](#attacks-written-by-something-that-has-not-seen-the-rules), which
+> Parchi catches **76%** of.
 
 The 45 violations rules alone miss fall into two cases: a prompt injection on the
 product page that adds a line item **inside an allowed category and under the cap**,
 and **quantity inflation**, multiple identical allowed items that keep the total
 under the cap. No rule can see either, which is why the model call is there at all.
 
-> [!IMPORTANT]
-> **The table above is the offline `heuristic` matcher's.** This repo runs end to
-> end with no API key, and that is the number a no-key reproduction gets, so it
-> stays as the reproducible baseline. The **full 1,000-row run against a real
-> model** has also been done, and it is published below, degraded rows and all,
-> because a risk product that only quotes its best run is doing the thing it
-> exists to prevent.
+### What a no-key reproduction gets
+
+This repo runs end to end with no API key, and the offline matcher standing in
+for the model call scores the same 1,000 rows at **280/280 violations caught,
+zero false blocks, ₹0**. That number is reproducible by anyone with
+`python eval/evaluate.py` and no credentials, which is why it is kept, and it
+is also a closed loop, which is why it is not the headline.
+
+<img src="docs/images/scoreboard.jpg" alt="The demo page's numbers panel, showing the no-key reproduction: 280 of 280 violations caught and zero good customers blocked" width="100%">
+
+The demo page reads that panel from `eval/results.json`, so it shows the no-key
+run rather than the model one. That is the reproducible number, and the numbers
+a reviewer should weigh are in the two sections above.
+
+```bash
+python eval/evaluate.py            # the no-key run, results.json and results.md
+python eval/evaluate.py --gate     # the same run, plus the regression gate CI uses
+```
 
 ### The full model run
 

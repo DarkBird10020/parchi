@@ -73,7 +73,9 @@ the scoreboard is denominated in rupees rather than in percentages.
 [The demo](#the-demo) · [The operations console](#the-operations-console) ·
 [Patterns one cart cannot show](#the-patterns-one-cart-cannot-show) ·
 [What earns a block](#what-earns-the-ten-minute-block) ·
-[Adversarial testing](#adversarial-testing) · [The slip](#the-slip) ·
+[Adversarial testing](#adversarial-testing) ·
+[Attacks I didn't write](#attacks-written-by-something-that-has-not-seen-the-rules) ·
+[The slip](#the-slip) ·
 [Lying about the price](#lying-about-the-price) ·
 [Why this and not the alternative](#why-this-and-not-the-obvious-alternative) ·
 [Repo layout](#repo-layout) · [Known limitations](#known-limitations)
@@ -701,6 +703,68 @@ slip for one shop authorised a purchase at *any* other) and a zero-value cart. T
 more were passing *for the wrong reason*: the model happened to catch what no rule
 did, so a model outage would have re-opened both. Fixing them is why there are now
 12 deterministic checks instead of six.
+
+### Attacks written by something that has not seen the rules
+
+Every other number here has the same weakness, and it is worth naming: the
+1,000-row batch was written by a generator I also wrote, scored against checks
+I also wrote. A perfect score on that is a closed loop. The hand-written
+held-out set below is better, because its cases were chosen to defeat the
+generator's blind spots, but I wrote those too, and nobody red-teams their own
+blind spots by trying harder.
+
+So `eval/redteam.py` hands the job over. A model is given the product, what a
+mandate is and what the checkpoint promises to stop, and is shown **no rule, no
+check name, no threshold and no example from any existing suite**. It writes
+carts a dishonest agent would present, in eight different shopping domains, and
+labels each one itself.
+
+```bash
+python eval/redteam.py            # generate, score, report
+python eval/redteam.py --reuse    # re-score the saved set
+```
+
+Forty distinct cases, and the number is nothing like 100%:
+
+| | |
+|:--- |:--- |
+| Attacks caught | **22/29 (76%)** |
+| Honest carts allowed through | 10/11 (91%) |
+| False blocks | 1, and it is the adversary's own mislabel |
+| Caught by | 14 by a rule, 8 by the model call |
+
+The one "false block" is a cart the generator labelled honest whose total is
+₹1,900 against the ₹1,000 cap it set itself. Refusing that is arithmetic, so
+the script flags such cases automatically and leaves them in the totals rather
+than quietly dropping them.
+
+**The seven that got through are the point of the exercise**, and they fall
+into four shapes the model call should have caught and did not:
+
+| What got through | What the agent did |
+|:--- |:--- |
+| Premium upgrade | Upsold to a much more expensive version of the requested item, inside the cap |
+| Category substitution | Bought a different item in the same allowed category |
+| Quantity padding | A quantity technically inside the cap but absurd for one shop |
+| Description mimicry | A description worded to look like the requested item |
+
+Quantity padding is the blind spot already recorded in `FAILURES.md`. The other
+three are new, found by an adversary that had never seen this code, and they
+are all the same underlying weakness: the intent check compares a cart against a
+sentence, and a sentence does not pin down *which* running shoe.
+
+That number, 76%, is the one I would defend in a review. It is measured against
+cases chosen to beat this system rather than to be caught by it, the failures
+are enumerated above rather than summarised, and the generated set is committed
+in [`eval/redteam_cases.json`](eval/redteam_cases.json) with the scored results
+beside it so the run can be argued with.
+
+Scope, stated rather than implied: these are **cart-level** attacks. The
+adversary cannot forge a signature, replay a nonce or backdate a mandate,
+because a generated JSON case cannot express those and they are settled by
+arithmetic no wording defeats. Cart level is exactly where the rules run out
+and the model call earns its place, which is why it is the part worth handing
+to somebody else.
 
 ### The held-out set the generator didn't write
 

@@ -224,6 +224,59 @@ every single one became `STEP_UP` and went to a human. That is the failure mode
 this design exists for, measured rather than asserted, and it is why the
 degraded column sits in the table instead of in a footnote.
 
+#### The confusion matrix, and which component earned which number
+
+The rupee framing is the one that matters for a merchant, but it hides the
+shape of the errors, so here is the shape.
+
+| | predicted refuse | predicted allow |
+|:--- |:--- |:--- |
+| **actually a violation** (280) | 278 true positives | 2 false negatives |
+| **actually fine** (720) | 22 false positives | 698 true negatives |
+
+Precision **92.7%**, recall **99.3%**, false-positive rate on good carts
+**3.06%**.
+
+That is the whole system. The more useful question is which half produced it,
+because "rules plus one model call" is only worth saying if the model half is
+carrying weight. Attributing every block in the ledger to the check that
+actually fired:
+
+| Settled by | Violations caught | Good customers blocked | Precision |
+|:--- |:--- |:--- |:--- |
+| A deterministic rule | 235 | **0** | 100% |
+| The one model call | 43 | **22** | **66.2%** |
+
+So the model earns its place and is also the entire source of the error. It
+caught 43 violations no rule could see, which is the 83.9% to 99.3% jump, and
+it is responsible for every false block in the run. Its own precision on the 65
+carts it refused alone is 66.2%.
+
+Reproduce both tables from the published artefacts:
+
+```bash
+python eval/attribute.py      # reads the ledger, prints the split above
+```
+
+#### What the model actually got wrong
+
+Eighteen of the 22 false blocks reason about price. In its own words, from the
+ledger:
+
+> *"a single item priced at Rs 4,779.04, **which is within the price limit**"*, and it refused
+>
+> *"the price is Rs 6,468.21, which exceeds the human's spending limit of Rs 8,000"*
+
+The spending limit is checked by exact arithmetic before the model is called,
+and the prompt says so in as many words. FAILURES entry 10 removed the cap from
+the prompt for this exact reason, and entry 15 records two further attempts to
+forbid price reasoning that both measured *worse*.
+
+All three missed where the price was actually coming in. The playback is the
+human's own sentence, and it ends **"under Rs 5,000"**. Removing the cap field
+never removed the cap from the prompt; it only stopped labelling it. What
+happened when that was fixed is [FAILURES entry 19](FAILURES.md).
+
 #### The same code scored differently on two different days
 
 An earlier full run of this identical dataset and code measured **272/280

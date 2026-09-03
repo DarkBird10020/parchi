@@ -320,3 +320,33 @@ def test_no_screenshot_is_used_twice():
                       (ROOT / "README.md").read_text(encoding="utf-8"))
     repeated = [name for name, n in collections.Counter(refs).items() if n > 1]
     assert not repeated, f"the same screenshot appears more than once: {repeated}"
+
+
+def test_the_pitch_deck_quotes_the_run_it_is_presenting():
+    """Slides are read aloud on camera. Stale figures there are worse than in
+    a README, because nobody can check them mid-sentence."""
+
+    deck = (ROOT / "docs/pitch-deck.html").read_text(encoding="utf-8")
+    model = _load("eval/results_model_full.json")["approaches"]["parchi"]
+    caught = model["metrics"]["tp"]
+    total = caught + model["metrics"]["fn"]
+    assert f"{caught}/{total} caught" in deck, (
+        f"the deck does not quote the model run's own {caught}/{total}")
+    assert f"{model['metrics']['fp']} false" in deck, "false-block count is stale"
+    assert f"{model['run']['degraded_rows']} calls that missed" in deck, (
+        "degraded-call count is stale")
+
+    rules = _load("eval/results.json")["approaches"]
+    parchi = rules["parchi"]["metrics"]
+    assert f'{parchi["tp"]} / {parchi["tp"] + parchi["fn"]}' in deck, (
+        "the reproducible run's headline figure is stale in the deck")
+
+
+def test_the_pitch_deck_agrees_with_the_adjudicator_story():
+    """The 15-of-18 figure is the beat the pitch is built on."""
+    deck = (ROOT / "docs/pitch-deck.html").read_text(encoding="utf-8")
+    failures = (ROOT / "FAILURES.md").read_text(encoding="utf-8")
+    for figure in ("18 / 18", "3 / 18", "16 / 18"):
+        assert figure in deck, f"the adjudicator table is missing {figure}"
+    assert "15" in failures and "entry 16" in deck.lower(), (
+        "the deck should point at the FAILURES entry it is retelling")

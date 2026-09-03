@@ -1,0 +1,367 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Parchi: the 5-minute pitch</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!--
+  The slides for the pitch video, in the same paper as the product.
+
+  Open it, press F for fullscreen, and drive it with the right arrow while you
+  talk. Two slides are CUT cards: stop sharing this and switch to the browser,
+  because the demo has to be the live thing, not a picture of it.
+
+  Press P for the presenter bar (your line and the clock). It is off by default
+  so it never lands in a recording by accident.
+
+  No network, no fonts to fetch, no build step. A deck that needs the internet
+  is a deck that fails halfway through a take.
+-->
+<style>
+  :root{
+    --paper:#F5F1E8; --card:#FFFDF7; --card-2:#F9F2E9;
+    --rule:#DCD4C2; --rule-2:#C9BFA8; --rule-3:#EDE7D9;
+    --ink:#16130E; --ink-2:#3E382D; --ink-3:#6B6151; --ink-4:#9E947F;
+    --stamp:#B4472B; --allow:#17694A; --block:#B4472B; --stepup:#8A6410;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--paper); color:var(--ink);
+    font-family:var(--serif); overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* A fixed 1600x900 canvas, scaled to fit whatever it is projected on.
+     Viewport units were the first attempt and four slides overflowed at 1080p:
+     with justify-content:center, content taller than the frame pushes its own
+     heading off the top, where nothing warns you. A fixed canvas cannot do
+     that. What fits here fits everywhere. */
+  .stage{position:fixed; inset:0; display:grid; place-items:center; overflow:hidden}
+  .canvas{
+    width:1600px; height:900px; position:relative; flex:none;
+    transform:scale(var(--s,1)); transform-origin:center center;
+  }
+  .slide{
+    position:absolute; inset:0; padding:72px 96px;
+    display:none; flex-direction:column; justify-content:center;
+  }
+  .slide.on{display:flex}
+
+  .kicker{
+    font-family:var(--mono); font-size:15px; letter-spacing:.2em;
+    text-transform:uppercase; color:var(--stamp); margin-bottom:26px;
+  }
+  h1{font-size:104px; line-height:1.0; margin:0 0 28px; font-weight:400; letter-spacing:-.02em}
+  h1 em{font-style:italic}
+  h2{font-size:58px; line-height:1.1; margin:0 0 30px; font-weight:400; letter-spacing:-.012em}
+  p{font-size:25px; line-height:1.52; margin:0 0 18px; max-width:66ch; color:var(--ink-2)}
+  p.lead{font-size:30px; line-height:1.45; color:var(--ink)}
+  strong{font-weight:600; color:var(--ink)}
+  .mono{font-family:var(--mono)}
+
+  /* staged entrance: each [data-step] appears one beat after the last */
+  .slide.on [data-step]{
+    opacity:0; transform:translateY(14px);
+    animation:rise .5s cubic-bezier(.2,.7,.3,1) forwards;
+  }
+  @keyframes rise{to{opacity:1; transform:none}}
+  .slide.on [data-step="1"]{animation-delay:.05s}
+  .slide.on [data-step="2"]{animation-delay:.30s}
+  .slide.on [data-step="3"]{animation-delay:.55s}
+  .slide.on [data-step="4"]{animation-delay:.80s}
+  .slide.on [data-step="5"]{animation-delay:1.05s}
+  .slide.on [data-step="6"]{animation-delay:1.30s}
+  @media (prefers-reduced-motion: reduce){
+    .slide.on [data-step]{animation:none; opacity:1; transform:none}
+  }
+
+  .stats{display:flex; gap:44px; border-top:1px solid var(--ink); padding-top:24px; margin-top:14px}
+  .stat{flex:1}
+  .stat .k{font-family:var(--mono); font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3)}
+  .stat .v{font-size:62px; line-height:1.05; margin-top:8px}
+  .stat .v span{color:var(--ink-4)}
+  .stat .s{font-size:17px; color:var(--ink-3); margin-top:6px; line-height:1.35}
+
+  table{border-collapse:collapse; width:100%; font-size:23px}
+  th{
+    font-family:var(--mono); font-size:13px; letter-spacing:.12em;
+    text-transform:uppercase; color:var(--ink-3); font-weight:400;
+    text-align:left; padding:0 18px 11px 0; border-bottom:1px solid var(--ink);
+    vertical-align:bottom;
+  }
+  td{padding:14px 18px 14px 0; border-bottom:1px solid var(--rule)}
+  tr.hero td{background:var(--card); font-weight:600}
+  td.num{font-family:var(--mono); white-space:nowrap}
+  .bad{color:var(--block)} .good{color:var(--allow)}
+
+  .cut{align-items:center; text-align:center; justify-content:center}
+  .cut .big{
+    font-family:var(--mono); font-size:22px; letter-spacing:.32em;
+    text-transform:uppercase; color:var(--stamp); border:2px solid var(--stamp);
+    padding:18px 34px; border-radius:2px; transform:rotate(-1.2deg);
+  }
+  .cut h2{margin-top:44px; max-width:26ch}
+  .cut p{margin-inline:auto; text-align:center; font-size:26px}
+
+  .arch{display:flex; align-items:stretch; gap:18px; margin-top:8px}
+  .box{flex:1; background:var(--card); border:1px solid var(--rule-2); padding:24px; border-radius:3px}
+  .box .n{font-family:var(--mono); font-size:12px; letter-spacing:.16em; color:var(--stamp); text-transform:uppercase}
+  .box .t{font-size:27px; margin:10px 0}
+  .box .d{font-size:17px; color:var(--ink-3); line-height:1.5}
+  .arrow{display:grid; place-items:center; font-family:var(--mono); color:var(--ink-4); font-size:26px}
+  .verdicts{display:flex; gap:14px; margin-top:28px; flex-wrap:wrap; align-items:center}
+  .v{font-family:var(--mono); font-size:17px; letter-spacing:.1em; padding:9px 18px; border:1px solid currentColor; border-radius:2px}
+  .v.a{color:var(--allow)} .v.b{color:var(--block)} .v.s{color:var(--stepup)}
+
+  /* chrome: progress, slide number, presenter bar */
+  .bar{position:fixed; left:0; top:0; height:2px; background:var(--stamp); width:0; transition:width .35s ease}
+  /* Named for what it is. This used to be `.num`, which also matched the
+     numeric table cells: they inherited position:absolute and every figure in
+     the results table stacked in the bottom-right corner. */
+  .slideno{
+    position:absolute; right:40px; bottom:30px;
+    font-family:var(--mono); font-size:14px; color:var(--ink-4); letter-spacing:.1em;
+  }
+  .mark{position:absolute; left:40px; bottom:26px; display:flex; align-items:center; gap:10px}
+  .mark .sq{width:26px; height:26px; background:var(--ink); color:var(--paper); display:grid; place-items:center; font-size:15px; border-radius:2px}
+  .mark .nm{font-size:19px}
+
+  #presenter{
+    position:fixed; left:0; right:0; bottom:0; display:none;
+    background:var(--ink); color:#F2EDE2; padding:14px 20px;
+    font-family:var(--mono); font-size:14px; line-height:1.5;
+    border-top:3px solid var(--stamp);
+  }
+  #presenter.on{display:block}
+  #presenter .row{display:flex; gap:20px; align-items:baseline}
+  #presenter .clock{color:#E8B4A0; white-space:nowrap}
+  #presenter .say{color:#F2EDE2; flex:1}
+  #presenter .hint{color:#9E947F; margin-top:6px; font-size:12px}
+
+  #help{
+    position:fixed; inset:0; background:rgba(22,19,14,.94); color:#F2EDE2;
+    display:none; place-items:center; font-family:var(--mono); font-size:15px; line-height:2;
+  }
+  #help.on{display:grid}
+  #help kbd{background:#2E2822; border:1px solid #4A4038; border-radius:3px; padding:2px 8px; margin-right:10px}
+</style>
+
+<div class="bar" id="bar"></div>
+
+<div class="stage">
+<div class="canvas" id="canvas">
+
+  <!-- 1 ................................................................. -->
+  <section class="slide" data-t="0:00" data-say="Open on this. Do not say the project name yet.">
+    <div class="kicker" data-step="1">Razorpay AI Buildathon · Track 02 · AI Risk Manager</div>
+    <h1 data-step="2">No parchi,<br><em>no purchase.</em></h1>
+    <p class="lead" data-step="3">A permission layer for AI-initiated payments.</p>
+    <div class="stats" data-step="4">
+      <div class="stat"><div class="k">Deterministic checks</div><div class="v">12</div><div class="s">no AI in that file</div></div>
+      <div class="stat"><div class="k">Model calls per cart</div><div class="v">1</div><div class="s">for the one question rules cannot ask</div></div>
+      <div class="stat"><div class="k">Attack patterns</div><div class="v">48</div><div class="s">each with the verdict it must get</div></div>
+      <div class="stat"><div class="k">Tests</div><div class="v">296</div><div class="s">green in CI</div></div>
+    </div>
+  </section>
+
+  <!-- 2 ................................................................. -->
+  <section class="slide" data-t="0:00-0:40"
+           data-say="Lead with the problem. UPI answers 'is there money and is it the right merchant'. It cannot answer 'is this the thing I actually asked for'.">
+    <div class="kicker" data-step="1">The gap</div>
+    <h2 data-step="2">UPI can tell you the money is there.<br>It cannot tell you what it was for.</h2>
+    <p data-step="3">Razorpay has Agentic Payments on UPI Reserve Pay. The human pre-approves a
+      spending <strong>limit</strong>. The rail records nothing about the <strong>purpose</strong>.</p>
+    <p data-step="4">So when the customer says <em>“my agent did that, I didn’t”</em>,
+      the merchant cannot prove otherwise.</p>
+    <p class="lead" data-step="5">Every agent purchase should carry a signed permission slip,
+      and something should check the cart against it <strong>before</strong> the money moves.</p>
+  </section>
+
+  <!-- 3 ................................................................. -->
+  <section class="slide cut" data-t="0:40-1:35"
+           data-say="Stop sharing the deck. Switch to the browser. Injection scenario, then Tamper, then step-up.">
+    <div class="big" data-step="1">Cut to the browser</div>
+    <h2 data-step="2">The checkpoint, running</h2>
+    <p data-step="3">Injection that passes every rule → <strong>BLOCK</strong>.<br>
+       Tamper the ledger → the chain reports itself broken.<br>
+       High-value legitimate cart → <strong>STEP-UP</strong>, not allow, not block.</p>
+  </section>
+
+  <!-- 4 ................................................................. -->
+  <section class="slide cut" data-t="1:35-2:20"
+           data-say="Run the swarm scenario. It comes back ALLOW, correctly. Then switch to the console tab.">
+    <div class="big" data-step="1">Cut to the console</div>
+    <h2 data-step="2">The attack that is only visible across many carts</h2>
+    <p data-step="3">Three registered agents, one payer, every rule passing for each.<br>
+       The adjudicator reads the pattern and cools the account for ten minutes.<br>
+       A human can lift it, and the lift is logged with their name on it.</p>
+  </section>
+
+  <!-- 5 ................................................................. -->
+  <section class="slide" data-t="2:20-3:05"
+           data-say="A blocked genuine customer is money the merchant lost, so count it in rupees.">
+    <div class="kicker" data-step="1">1,000 labelled agent purchases</div>
+    <h2 data-step="2">False positives in rupees,<br>not percentages.</h2>
+    <table data-step="3">
+      <tr><th>Approach</th><th>Violations caught</th><th>Good customers blocked</th><th>Cost of the mistakes</th></tr>
+      <tr><td>Allow everything</td><td class="num">0 / 280</td><td class="num">0</td><td class="num bad">₹17,83,157</td></tr>
+      <tr><td>Block all agent traffic</td><td class="num">280 / 280</td><td class="num bad">720</td><td class="num bad">₹33,73,331</td></tr>
+      <tr><td>Rules only</td><td class="num">235 / 280</td><td class="num">0</td><td class="num bad">₹2,19,908</td></tr>
+      <tr class="hero"><td>Parchi <span class="mono">(rules + one model call)</span></td><td class="num good">280 / 280</td><td class="num good">0</td><td class="num good">₹0</td></tr>
+    </table>
+    <p data-step="4" style="margin-top:22px">And published next to it, the run against a <strong>real model</strong>:
+      <span class="mono">278/280 caught, 22 false blocks, 22 calls that missed the 4s budget</span>.
+      Every one of those 22 went to a human. <strong>Not one was auto-approved.</strong></p>
+  </section>
+
+  <!-- 6 ................................................................. -->
+  <section class="slide" data-t="3:05-3:55"
+           data-say="Slow down here. This is the beat that wins it. FAILURES entry 16.">
+    <div class="kicker" data-step="1">What broke · FAILURES entry 16</div>
+    <h2 data-step="2">I built an AI that blocks accounts.<br>Then I measured it.</h2>
+    <p data-step="3">It caught every attack I threw at it, so it looked finished. Every
+      deterministic check here is scored against a thousand rows. The one component that
+      can refuse a <strong>real customer</strong> was scored against nothing.</p>
+    <table data-step="4">
+      <tr><th>Twelve situations, half of them ordinary customers</th><th>Attacks caught</th><th>Customers left alone</th><th>False blocks</th></tr>
+      <tr><td>First prompt</td><td class="num">18 / 18</td><td class="num bad">3 / 18</td><td class="num bad">15</td></tr>
+      <tr class="hero"><td>After writing the cost asymmetry into it</td><td class="num">18 / 18</td><td class="num good">16 / 18</td><td class="num good">2</td></tr>
+    </table>
+    <p data-step="5" style="margin-top:20px">Its perfect recall was not skill.
+      <strong>A rule that always says yes catches every attack too.</strong></p>
+  </section>
+
+  <!-- 7 ................................................................. -->
+  <section class="slide" data-t="3:55-4:35"
+           data-say="Architecture and trade-offs. This is what they said to focus on.">
+    <div class="kicker" data-step="1">Architecture</div>
+    <h2 data-step="2" style="margin-bottom:26px">Rules first. One model call. Never the other way round.</h2>
+    <div class="arch">
+      <div class="box" data-step="3">
+        <div class="n">One</div>
+        <div class="t">The signed slip</div>
+        <div class="d">AP2-inspired intent mandate: cap, categories, expiry, nonce, and the agent’s own playback of the request. Ed25519 over canonical JSON.</div>
+      </div>
+      <div class="arrow" data-step="4">→</div>
+      <div class="box" data-step="4">
+        <div class="n">Two</div>
+        <div class="t">12 deterministic checks</div>
+        <div class="d">Signature, expiry, payee, method, line items, quantity, prices, category, discount, cap, agent identity, replay. Short-circuits on the first failure. Discount before cap, because the cap applies to the post-discount total.</div>
+      </div>
+      <div class="arrow" data-step="5">→</div>
+      <div class="box" data-step="5">
+        <div class="n">Three</div>
+        <div class="t">One model call</div>
+        <div class="d">Only if every rule passed. Does this cart match what the human asked for? Strict typed JSON, a timeout, merchant text fenced as data, and the cap kept <em>out</em> of the prompt so it never re-decides arithmetic.</div>
+      </div>
+    </div>
+    <div class="verdicts" data-step="6">
+      <span class="v a">ALLOW</span><span class="v b">BLOCK</span><span class="v s">STEP-UP · ask the human</span>
+      <span style="font-size:18px; color:var(--ink-3); max-width:46ch; line-height:1.4">
+        &nbsp;Hash-chained either way. A degraded model call becomes STEP-UP, never ALLOW.</span>
+    </div>
+  </section>
+
+  <!-- 8 ................................................................. -->
+  <section class="slide" data-t="4:35-4:52"
+           data-say="Why this matters to them specifically.">
+    <div class="kicker" data-step="1">Why Razorpay</div>
+    <h2 data-step="2">Agent Studio answers disputes.<br>This prevents and evidences them.</h2>
+    <p class="lead" data-step="3">That dispute agent works on <strong>human</strong> transactions.
+      Parchi is the other half: a pre-authorisation checkpoint sitting where the mandate
+      meets the cart, on <strong>agent</strong> transactions, mapping field-for-field onto
+      UPI Reserve Pay.</p>
+    <p data-step="4">Strictly defense-only. Nothing in the repository can initiate a payment.
+      Every path permits, refuses, or escalates.</p>
+  </section>
+
+  <!-- 9 ................................................................. -->
+  <section class="slide" data-t="4:52-5:00"
+           data-say="Land it and stop talking. Leave the URL on screen.">
+    <h1 data-step="1">No parchi,<br><em>no purchase.</em></h1>
+    <p class="lead" data-step="2">Public repo. Two commands reproduce every number.<br>
+      The failure log is as long as the feature list.</p>
+    <p class="mono" data-step="3" style="font-size:24px; color:var(--stamp)">
+      github.com/DarkBird10020/parchi</p>
+  </section>
+
+  <div class="mark"><span class="sq">प</span><span class="nm">Parchi</span></div>
+  <div class="slideno" id="slideno"></div>
+</div>
+</div>
+
+<div id="presenter">
+  <div class="row"><span class="clock" id="clock"></span><span class="say" id="say"></span></div>
+  <div class="hint">P hides this bar · F fullscreen · arrows or space to move · R resets the timer · ? for keys</div>
+</div>
+
+<div id="help">
+  <div>
+    <div><kbd>→</kbd> or <kbd>space</kbd> next slide</div>
+    <div><kbd>←</kbd> previous slide</div>
+    <div><kbd>F</kbd> fullscreen</div>
+    <div><kbd>P</kbd> presenter bar (never leave this on while recording)</div>
+    <div><kbd>R</kbd> restart the running clock</div>
+    <div><kbd>Home</kbd> back to slide 1</div>
+    <div><kbd>?</kbd> close this</div>
+  </div>
+</div>
+
+<script>
+  const slides = [...document.querySelectorAll(".slide")];
+  const bar = document.getElementById("bar");
+  const slideno = document.getElementById("slideno");
+  const presenter = document.getElementById("presenter");
+  const say = document.getElementById("say");
+  const clock = document.getElementById("clock");
+  const help = document.getElementById("help");
+  let i = 0, started = null;
+
+  function fit(){
+    const c = document.getElementById("canvas");
+    c.style.setProperty("--s", Math.min(innerWidth / 1600, innerHeight / 900));
+  }
+  addEventListener("resize", fit);
+  fit();
+
+  function show(next){
+    i = Math.max(0, Math.min(slides.length - 1, next));
+    slides.forEach((s, n) => s.classList.toggle("on", n === i));
+    // Re-trigger the entrance animation by reflowing the newly shown slide.
+    void slides[i].offsetWidth;
+    bar.style.width = ((i + 1) / slides.length * 100) + "%";
+    slideno.textContent = String(i + 1).padStart(2, "0") + " / " + String(slides.length).padStart(2, "0");
+    say.textContent = slides[i].dataset.say || "";
+    tick();
+  }
+
+  function tick(){
+    const target = slides[i].dataset.t || "";
+    if(started === null){ clock.textContent = target + "  ·  clock not started"; return; }
+    const s = Math.floor((Date.now() - started) / 1000);
+    const mm = String(Math.floor(s / 60)), ss = String(s % 60).padStart(2, "0");
+    clock.textContent = target + "  ·  elapsed " + mm + ":" + ss;
+  }
+  setInterval(tick, 500);
+
+  addEventListener("keydown", (e) => {
+    if(e.key === "ArrowRight" || e.key === " " || e.key === "PageDown"){ e.preventDefault(); show(i + 1); }
+    else if(e.key === "ArrowLeft" || e.key === "PageUp"){ e.preventDefault(); show(i - 1); }
+    else if(e.key === "Home"){ show(0); }
+    else if(e.key === "End"){ show(slides.length - 1); }
+    else if(e.key.toLowerCase() === "f"){
+      if(document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(() => {});
+    }
+    else if(e.key.toLowerCase() === "p"){ presenter.classList.toggle("on"); }
+    else if(e.key.toLowerCase() === "r"){ started = Date.now(); tick(); }
+    else if(e.key === "?"){ help.classList.toggle("on"); }
+    else if(e.key === "Escape"){ help.classList.remove("on"); }
+  });
+
+  // Click anywhere to advance, so a clicker or a trackpad works too.
+  addEventListener("click", (e) => { if(!help.classList.contains("on")) show(i + 1); });
+
+  show(0);
+</script>

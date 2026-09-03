@@ -33,7 +33,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-PAGES = ["demo/index.html", "demo/console.html"]
+PAGES = ["demo/index.html", "demo/console.html", "docs/pitch-deck.html"]
 
 SCRIPT = re.compile(r"<script\b([^>]*)>(.*?)</script>", re.S | re.I)
 SCRIPT_BLOCK = re.compile(r"<script\b[^>]*>.*?</script>", re.S | re.I)

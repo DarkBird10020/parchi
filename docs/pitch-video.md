@@ -49,6 +49,24 @@ Two lines of their guidance are worth taping to the monitor:
 Both are already true of this build. The video's only job is to not get in the
 way of them.
 
+### The slides
+
+`docs/pitch-deck.html` is the deck for the beats that are not the live demo.
+Open it in a browser, press <kbd>F</kbd> for fullscreen, and drive it with the
+right arrow while you talk.
+
+Two of its slides say **CUT TO THE BROWSER** in red. That is the instruction:
+stop sharing the deck and switch to the running demo, because the demo has to
+be the live thing rather than a picture of one. Switch back afterwards.
+
+Press <kbd>P</kbd> for a presenter bar carrying the line for the current slide
+and a running clock; <kbd>R</kbd> starts that clock when you start speaking. It
+is off by default so it cannot land in a take by accident. <kbd>?</kbd> lists
+the keys.
+
+It needs no network and no fonts, because a deck that fetches something is a
+deck that can fail halfway through a recording.
+
 ### How to record it
 
 **Screen recording with your own voice over it.** Not an animation, not a

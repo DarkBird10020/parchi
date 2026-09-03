@@ -818,7 +818,11 @@ def test_releasing_an_account_that_is_not_held_is_not_an_error(monkeypatch):
     assert r.status_code == 200 and r.json()["released"] == []
 
 
-def test_release_requires_the_console():
+def test_release_requires_the_console(monkeypatch):
+    # Enable the console, so a refusal means "wrong credential" and not
+    # "console off": the second is a 503 with its own test, and relying on a
+    # local .env to tell them apart is what broke this in CI.
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
     server.cooldowns.reset()
     server.cooldowns.trigger("usr_five", "agent swarm detected")
     try:

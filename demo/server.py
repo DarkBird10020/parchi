@@ -158,8 +158,12 @@ users = UserDirectory(path=os.path.join(HERE, "users.jsonl"))
 # The default pair below is a throwaway published on purpose; a real account
 # comes from the environment, because a password in a public file is a
 # published password no matter what it protects.
-DEMO_USER_EMAIL = os.environ.get("PARCHI_DEMO_USER_EMAIL", "shopper@parchi.demo").strip().lower()
-DEMO_USER_PASSWORD = os.environ.get("PARCHI_DEMO_USER_PASSWORD", "parchi-demo-shopper")
+# `or` rather than a get() default: an explicitly empty value means "not set",
+# which is what a test harness pinning the environment writes.
+DEMO_USER_EMAIL = (os.environ.get("PARCHI_DEMO_USER_EMAIL", "").strip().lower()
+                   or "shopper@parchi.demo")
+DEMO_USER_PASSWORD = (os.environ.get("PARCHI_DEMO_USER_PASSWORD", "").strip()
+                      or "parchi-demo-shopper")
 if not users.authenticate(DEMO_USER_EMAIL, DEMO_USER_PASSWORD):
     users.signup(DEMO_USER_EMAIL, DEMO_USER_PASSWORD)
 

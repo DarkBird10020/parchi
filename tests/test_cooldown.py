@@ -126,10 +126,15 @@ def test_the_console_can_release_a_cooled_account():
                           json={"scenario": "allow"}).json()
     assert blocked["decision"]["verdict"] == "BLOCK"
 
+    # The console has to be ENABLED for "refused" to mean "wrong credential".
+    # With nothing configured the answer is 503, console off, which is a
+    # different property with its own test. CI configures neither, so a test
+    # that leans on a local .env for this passes here and fails there.
+    server.CONSOLE_TOKEN = "the-real-token"
     r = client.post("/api/console/release",
                     headers={"X-Parchi-Console-Token": "tok"},
                     json={"account": "usr_demo"})
-    assert r.status_code == 401  # no token supplied
+    assert r.status_code == 401  # wrong token
 
     server.CONSOLE_TOKEN = "tok"
     try:
@@ -268,6 +273,12 @@ def test_clear_alerts_empties_feed_and_file_but_keeps_the_chain():
 
 
 def test_operator_controls_require_the_console():
-    assert client.post("/api/console/ai-gate",
-                       json={"enabled": False}).status_code == 401
-    assert client.post("/api/console/clear-alerts").status_code == 401
+    """Enabled but unauthenticated is 401. Not enabled at all is 503, which is
+    a different property, tested elsewhere."""
+    server.CONSOLE_TOKEN = "tok"
+    try:
+        assert client.post("/api/console/ai-gate",
+                           json={"enabled": False}).status_code == 401
+        assert client.post("/api/console/clear-alerts").status_code == 401
+    finally:
+        server.CONSOLE_TOKEN = ""

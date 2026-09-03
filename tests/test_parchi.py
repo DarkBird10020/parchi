@@ -436,11 +436,32 @@ def test_redaction_never_empties_the_playback():
     assert redact_amounts("under Rs 5,000").strip()
 
 
-def test_the_prompt_the_model_receives_contains_no_rupee_amount_from_intent():
+def test_redaction_is_off_by_default_and_the_flag_turns_it_on(monkeypatch):
+    """Measured off: it improves every count and worsens the rupee total.
+
+    See FAILURES entry 19. The flag exists so the run can be repeated, not
+    because the default is arbitrary.
+    """
+    from parchi.intent_match import _build_prompt
+
+    mandate = new_mandate("usr_1", "mrc_1", ("upi",), 500_000, ("footwear",),
+                          "buy running shoes under Rs 5,000")
+    cart = Cart((CartLine("running shoes", "footwear", 420_000),), "upi", "mrc_1")
+
+    monkeypatch.delenv("PARCHI_REDACT_PLAYBACK", raising=False)
+    assert "Rs 5,000" in _build_prompt(mandate, cart)
+
+    monkeypatch.setenv("PARCHI_REDACT_PLAYBACK", "1")
+    assert "Rs 5,000" not in _build_prompt(mandate, cart)
+
+
+def test_the_prompt_the_model_receives_contains_no_rupee_amount_from_intent(monkeypatch):
     """The whole point, asserted on the built prompt rather than the helper."""
     import re
 
     from parchi.intent_match import _build_prompt
+
+    monkeypatch.setenv("PARCHI_REDACT_PLAYBACK", "1")
 
     mandate = new_mandate("usr_1", "mrc_1", ("upi",), 500_000, ("footwear",),
                           "buy running shoes under Rs 5,000")

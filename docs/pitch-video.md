@@ -351,7 +351,7 @@ a tight 5:00 without it.
 
 The form asks for the track, the project name, the problem statement, the repo
 URL, the video URL, and **what broke and how it was resolved**. That last field
-is a scored parameter, not a formality, and `FAILURES.md` is eighteen entries
+is a scored parameter, not a formality, and `FAILURES.md` is nineteen entries
 long. Paste this instead, and link the file.
 
 > Three worth naming, all measured rather than remembered.
@@ -387,7 +387,7 @@ long. Paste this instead, and link the file.
 > Adding a rule to a prompt does not delete a behaviour, it moves it. FAILURES
 > 15, with both measured tables.
 >
-> Full log, eighteen entries with what I assumed, what it actually was, and
+> Full log, nineteen entries with what I assumed, what it actually was, and
 > what it cost: [FAILURES.md](FAILURES.md)
 
 ### If they ask why the numbers are not all perfect

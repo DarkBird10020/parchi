@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-317%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-323%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -274,8 +274,47 @@ forbid price reasoning that both measured *worse*.
 
 All three missed where the price was actually coming in. The playback is the
 human's own sentence, and it ends **"under Rs 5,000"**. Removing the cap field
-never removed the cap from the prompt; it only stopped labelling it. What
-happened when that was fixed is [FAILURES entry 19](FAILURES.md).
+never removed the cap from the prompt; it only stopped labelling it.
+
+#### Fixing that improved everything except the number that matters
+
+`redact_amounts` strips money from the playback the model sees, keeping the
+words and the quantities. The ledger and the evidence pack keep the sentence the
+human actually approved. Same 1,000 rows, same model, run again
+([`eval/results_model_redacted.json`](eval/results_model_redacted.json)):
+
+| | playback as written | money redacted |
+|:--- |:--- |:--- |
+| Violations caught | 278/280 (99.3%) | **280/280 (100%)** |
+| Precision | 92.7% | **95.2%** |
+| False blocks | 22 | **14** |
+| False-positive rate on good carts | 3.06% | **1.94%** |
+| The model's own precision | 66.2% | **76.3%** |
+| False blocks that reason about price | 18 of 22 | **7 of 14** |
+| High-value carts routed to a human | **38/40** | 35/40 |
+| Money lost to false blocks | **₹1,45,132** | ₹1,94,247 |
+| Money paid out on violations | ₹14,390 | **₹0** |
+| **Total cost of the mistakes** | **₹1,59,521** | ₹1,94,247 |
+
+Every count improved. The money got worse, by 22%.
+
+The reason is worth understanding, because it is not noise. Redaction trades
+many cheap false blocks for fewer expensive ones. Without a budget in the
+sentence, the model has no signal that an expensive cart was *expected*, so
+high-value purchases lose their anchor and start reading as implausible: the
+carts routed to a human fell from 38 to 35, and three large carts moving into
+the refused set costs more than eight ordinary ones leaving it.
+
+**So it ships off.** This repo scores in rupees, and by its own metric this
+change loses. Turning it on because the percentages look better would be the
+exact bias the rupee framing exists to prevent. It is one environment variable
+away, `PARCHI_REDACT_PLAYBACK=1`, so the run can be repeated and argued with.
+
+This is also the cleanest demonstration of why the scoreboard is denominated in
+money. Every classification metric said ship it. The only metric that counts
+what a merchant loses said the opposite, and it was right to.
+
+[FAILURES entry 19](FAILURES.md) has the full write-up.
 
 #### The same code scored differently on two different days
 
@@ -849,7 +888,7 @@ parchi/
 │   ├── evaluate.py        # precision, recall, false-positive rupee cost, baselines
 │   ├── heldout.py         # hand-written cases the generator never produced
 │   └── adjudicator.py     # scores the AI that can lock a customer out
-├── tests/                 # 317, including the 48 adversarial patterns
+├── tests/                 # 323, including the 48 adversarial patterns
 ├── demo/                  # fastapi server, the shop page, the operations console
 ├── docs/upi-mapping.md    # mandate fields mapped onto UPI Reserve Pay
 └── FAILURES.md            # what broke, what it actually was, what it cost

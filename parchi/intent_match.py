@@ -159,12 +159,21 @@ def _render_cart(cart: Cart) -> str:
 
 
 def _build_prompt(m: IntentMandate, cart: Cart) -> str:
+    # Off by default, and the reason is measured rather than assumed. Redacting
+    # the budget from the playback fixed what it was aimed at: recall reached
+    # 100%, false blocks fell 22 to 14, and price reasoning fell from 18 of 22
+    # to 7 of 14. It also made the headline number worse, because the false
+    # blocks that remain land on expensive carts. Without a budget in the
+    # sentence the model has no signal that an expensive cart was expected, so
+    # high-value purchases lost their anchor: 38 of 40 routed to a human became
+    # 35, and the total cost of the mistakes went from Rs 1,59,521 to
+    # Rs 1,94,247. This repo scores in rupees, so by its own metric this loses.
+    # FAILURES entry 19 has both runs. `PARCHI_REDACT_PLAYBACK=1` turns it on.
+    playback = m.prompt_playback
+    if os.environ.get("PARCHI_REDACT_PLAYBACK", "").strip() not in ("", "0", "false"):
+        playback = redact_amounts(playback)
     return PROMPT.format(
-        # The cap is not in the prompt as a field, and now it is not in the
-        # playback either. Removing the field alone left the model reading
-        # "under Rs 5,000" in the human's own sentence and re-enforcing it,
-        # which is 18 of the 22 false blocks in the published model run.
-        playback=redact_amounts(m.prompt_playback),
+        playback=playback,
         categories=", ".join(m.allowed_categories),
         cart=_render_cart(cart),
     )

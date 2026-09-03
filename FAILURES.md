@@ -703,6 +703,80 @@ honest response is to keep the shape that matters on rules.
 
 ---
 
+### 19. The cap was never out of the prompt, and taking it out cost more than leaving it
+
+**Where.** `parchi/intent_match.py`, the one model call.
+
+**Found by** a reviewer asking the obvious question about the published model
+run: what is the model's own false-positive rate on the good carts. Nobody had
+attributed the errors, so nobody knew. `eval/attribute.py` answers it from the
+ledger:
+
+```
+  a deterministic rule   235 violations caught,  0 good customers blocked
+  the one model call      43 violations caught, 22 good customers blocked
+```
+
+The rules are exact. The model, on the 65 carts it refused by itself, was right
+66% of the time, and it is the source of every false block in the run.
+
+**What was wrong.** Reading its own words for those 22, eighteen reason about
+price. One refused a cart at *"Rs 4,779.04, which is within the price limit"*,
+which is not a judgement, it is a sentence that contradicts itself.
+
+Entry 10 removed the cap from the prompt for exactly this. Entry 15 recorded
+two further attempts to forbid price reasoning by wording, both measured worse.
+All three missed the channel. The playback is the human's own sentence and it
+ends *"under Rs 5,000"*. Removing the cap field never removed the cap from the
+prompt; it stopped labelling it. Entry 15 had even written down the durable fix
+(*"not showing the model a price it has no job to judge"*) and then nobody
+implemented it, because the sentence did not look like a price field.
+
+**Changed, then measured, then not shipped.** `redact_amounts` strips money
+from the playback the model sees, keeping the words and the quantities, while
+the ledger and evidence pack keep what the human approved. Same 1,000 rows,
+same model:
+
+| | as written | redacted |
+|---|---|---|
+| Violations caught | 278/280 | **280/280** |
+| Precision | 92.7% | **95.2%** |
+| False blocks | 22 | **14** |
+| Model's own precision | 66.2% | **76.3%** |
+| Price-reasoning false blocks | 18 of 22 | **7 of 14** |
+| High-value carts routed to a human | **38/40** | 35/40 |
+| **Total cost of the mistakes** | **Rs 1,59,521** | Rs 1,94,247 |
+
+Every count improved. The money got 22% worse.
+
+**Why, and it is not noise.** Redaction trades many cheap false blocks for
+fewer expensive ones. The budget in the sentence was doing a second job nobody
+had noticed: telling the model that an expensive cart was *expected*. Take it
+away and a Rs 35,000 laptop stops reading as a purchase the human planned and
+starts reading as implausible. The failure mode did not disappear, it moved,
+which is the same thing entry 15 observed about adding rules to a prompt. The
+new wording is *"priced at Rs 4,101.74, which is not a standard quantity for
+coffee beans"*: no longer re-deciding a budget, now inventing a market price.
+
+**So it ships off**, behind `PARCHI_REDACT_PLAYBACK=1`. This repo scores in
+rupees. Turning it on because the percentages improved would be precisely the
+bias the rupee framing exists to prevent, and the number that counts what a
+merchant loses said no.
+
+**What would settle it.** The trade is between two signals the same sentence
+carries: the amount, which the model misuses, and the expectation of spending,
+which it needs. Redaction removes both. A version that removes the number while
+keeping the expectation is the obvious next experiment, and entry 15 is the
+reason to be pessimistic about it: two attempts to say *more* about price both
+measured worse. That would be a third.
+
+**The honest reading of this entry.** The finding is not the redaction. It is
+that a metric everybody agrees on can be improved on every axis you happen to
+be looking at, and still lose. Nine of the ten numbers in that table say ship
+it. The tenth is the one a merchant would care about.
+
+---
+
 ### Resolved (was "Still unsolved")
 
 The headline number is now a model number. The full 1,000-row run against

@@ -1,0 +1,204 @@
+{
+  "dataset": {
+    "rows": 1000,
+    "seed": 7,
+    "cases": {
+      "in_scope": 680,
+      "over_cap": 80,
+      "injection_cross_category": 25,
+      "wrong_category": 60,
+      "expired": 40,
+      "high_value_legit": 40,
+      "quantity_inflation": 20,
+      "replay": 30,
+      "injection_in_category": 25
+    }
+  },
+  "intent_provider": "openai",
+  "intent_model": "z-ai/glm-4.7-flash",
+  "intent_timeout_seconds": 4.0,
+  "approaches": {
+    "allow_everything": {
+      "metrics": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 280,
+        "tn": 720,
+        "precision": 0.0,
+        "recall": 0.0,
+        "f1": 0.0,
+        "exact_verdict_accuracy": 0.68,
+        "false_positive_paise": 0,
+        "false_negative_paise": 178315714,
+        "false_positive_display": "Rs 0.00",
+        "false_negative_display": "Rs 1,783,157.14",
+        "step_up_caught": 0,
+        "step_up_total": 40,
+        "step_up_predicted": 0
+      },
+      "run": {}
+    },
+    "block_all_agent_traffic": {
+      "metrics": {
+        "tp": 280,
+        "fp": 720,
+        "fn": 0,
+        "tn": 0,
+        "precision": 0.28,
+        "recall": 1.0,
+        "f1": 0.43750000000000006,
+        "exact_verdict_accuracy": 0.28,
+        "false_positive_paise": 337333146,
+        "false_negative_paise": 0,
+        "false_positive_display": "Rs 3,373,331.46",
+        "false_negative_display": "Rs 0.00",
+        "step_up_caught": 0,
+        "step_up_total": 40,
+        "step_up_predicted": 0
+      },
+      "run": {}
+    },
+    "rules_only": {
+      "metrics": {
+        "tp": 235,
+        "fp": 0,
+        "fn": 45,
+        "tn": 720,
+        "precision": 1.0,
+        "recall": 0.8392857142857143,
+        "f1": 0.9126213592233009,
+        "exact_verdict_accuracy": 0.955,
+        "false_positive_paise": 0,
+        "false_negative_paise": 21990765,
+        "false_positive_display": "Rs 0.00",
+        "false_negative_display": "Rs 219,907.65",
+        "step_up_caught": 40,
+        "step_up_total": 40,
+        "step_up_predicted": 40
+      },
+      "run": {
+        "seconds": 0.26,
+        "degraded_rows": 0,
+        "blocked_by": {
+          "amount_cap": 80,
+          "category": 85,
+          "expiry": 40,
+          "nonce_replay": 30
+        }
+      },
+      "per_case": {
+        "in_scope": {
+          "n": 680,
+          "correct": 680
+        },
+        "over_cap": {
+          "n": 80,
+          "correct": 80
+        },
+        "injection_cross_category": {
+          "n": 25,
+          "correct": 25
+        },
+        "wrong_category": {
+          "n": 60,
+          "correct": 60
+        },
+        "expired": {
+          "n": 40,
+          "correct": 40
+        },
+        "high_value_legit": {
+          "n": 40,
+          "correct": 40
+        },
+        "quantity_inflation": {
+          "n": 20,
+          "correct": 0
+        },
+        "replay": {
+          "n": 30,
+          "correct": 30
+        },
+        "injection_in_category": {
+          "n": 25,
+          "correct": 0
+        }
+      }
+    },
+    "parchi": {
+      "metrics": {
+        "tp": 280,
+        "fp": 14,
+        "fn": 0,
+        "tn": 706,
+        "precision": 0.9523809523809523,
+        "recall": 1.0,
+        "f1": 0.975609756097561,
+        "exact_verdict_accuracy": 0.968,
+        "false_positive_paise": 19424686,
+        "false_negative_paise": 0,
+        "false_positive_display": "Rs 194,246.86",
+        "false_negative_display": "Rs 0.00",
+        "step_up_caught": 35,
+        "step_up_total": 40,
+        "step_up_predicted": 53
+      },
+      "run": {
+        "seconds": 2074.74,
+        "degraded_rows": 19,
+        "blocked_by": {
+          "amount_cap": 80,
+          "category": 85,
+          "expiry": 40,
+          "intent_match": 59,
+          "nonce_replay": 30
+        }
+      },
+      "per_case": {
+        "in_scope": {
+          "n": 680,
+          "correct": 653
+        },
+        "over_cap": {
+          "n": 80,
+          "correct": 80
+        },
+        "injection_cross_category": {
+          "n": 25,
+          "correct": 25
+        },
+        "wrong_category": {
+          "n": 60,
+          "correct": 60
+        },
+        "expired": {
+          "n": 40,
+          "correct": 40
+        },
+        "high_value_legit": {
+          "n": 40,
+          "correct": 35
+        },
+        "quantity_inflation": {
+          "n": 20,
+          "correct": 20
+        },
+        "replay": {
+          "n": 30,
+          "correct": 30
+        },
+        "injection_in_category": {
+          "n": 25,
+          "correct": 25
+        }
+      }
+    }
+  },
+  "ledger": {
+    "path": "eval/ledger_model_redacted.jsonl",
+    "chain_intact": true,
+    "detail": "chain intact across 1000 records",
+    "records": 1000
+  },
+  "generated_at": 1788463691
+}

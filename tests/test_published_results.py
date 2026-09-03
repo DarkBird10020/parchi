@@ -148,3 +148,73 @@ def test_the_readme_quotes_the_model_run_it_links():
         "either the run was re-done and the prose was not, or the other way round")
     assert f"| {metrics['fp']} | {results['approaches']['parchi']['run']['degraded_rows']} |" in readme, (
         "README's false-block and degraded columns do not match the results file")
+
+
+# --------------------------------------------------------------------------
+# The docs are read aloud on camera. A stale number there is the one mistake
+# this project cannot afford to make, so the counts are asserted, not trusted.
+# --------------------------------------------------------------------------
+
+DOCS = ["docs/pitch-video.md", "docs/submission.md"]
+
+
+def _deterministic_check_count() -> int:
+    """How many checks `run_all` actually runs, read out of its own source."""
+    import inspect
+    import re
+
+    from parchi.checks import run_all
+    return len(re.findall(r"lambda: check_", inspect.getsource(run_all)))
+
+
+@pytest.mark.parametrize("doc", DOCS)
+def test_the_docs_state_the_real_number_of_deterministic_checks(doc):
+    """The count went from 10 to 12 and both documents still said ten.
+
+    Matched on the exact phrasing a script reads aloud, "<n> deterministic
+    checks" or "<n> deterministic rules", rather than any nearby number: the
+    first version of this test flagged "ten minutes, enforced
+    deterministically", which is a different and entirely correct sentence.
+    """
+    import re
+
+    n = _deterministic_check_count()
+    words = {10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen",
+             14: "fourteen", 15: "fifteen"}
+    assert n in words, f"add {n} to the word map in this test"
+    text = (ROOT / doc).read_text(encoding="utf-8")
+
+    pattern = re.compile(r"\b(\d+|[a-z]+)\s+deterministic\s+(?:check|rule)", re.I)
+    # Only the matches that are actually a count. "every deterministic check"
+    # and "my deterministic rules" are English, not claims about how many.
+    numbers = set(words.values()) | {str(k) for k in words}
+    stated = {m.group(1).lower() for m in pattern.finditer(text)} & numbers
+    assert stated, f"{doc} never states how many deterministic checks there are"
+    allowed = {str(n), words[n]}
+    assert stated <= allowed, (
+        f"{doc} says {sorted(stated - allowed)} deterministic checks, "
+        f"but run_all runs {n}")
+
+
+def test_the_recording_checklist_knows_how_many_scenarios_there_are():
+    import re
+
+    from demo import server
+    text = (ROOT / "docs/pitch-video.md").read_text(encoding="utf-8")
+    assert re.search(rf"\b{len(server.SCENARIOS)} scenarios\b", text), (
+        f"the recording checklist does not say {len(server.SCENARIOS)} scenarios; "
+        "a demo beat that is never rehearsed is a beat that breaks on camera")
+
+
+def test_the_pitch_states_the_real_number_of_failure_entries():
+    import re
+
+    entries = len(re.findall(r"^### \d+\.", (ROOT / "FAILURES.md").read_text(
+        encoding="utf-8"), re.M))
+    text = (ROOT / "docs/pitch-video.md").read_text(encoding="utf-8")
+    words = {13: "Thirteen", 14: "Fourteen", 15: "Fifteen", 16: "Sixteen",
+             17: "Seventeen", 18: "Eighteen", 19: "Nineteen", 20: "Twenty"}
+    assert entries in words, f"add {entries} to the word map in this test"
+    assert re.search(rf"\b({entries}|{words[entries]})\b\s+entries", text, re.I), (
+        f"the pitch script does not say {entries} entries, which is how many "
+        "FAILURES.md now has")

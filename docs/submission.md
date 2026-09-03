@@ -40,8 +40,11 @@ human's cap, categories, methods, TTL, nonce, and the agent's own playback of
 the request. Parchi verifies the purchase against that mandate *before*
 authorisation:
 
-- **10 deterministic checks** (signature, expiry, payee, method, line items,
-  quantity, category, cap, agent identity, replay), plain code, auditable, no AI.
+- **12 deterministic checks** (signature, expiry, payee, method, line items,
+  quantity, prices, category, discount, cap, agent identity, replay), plain
+  code, auditable, no AI. Discount is verified *before* the cap, because the
+  cap applies to the post-discount total, so an unverified coupon is a way
+  under any ceiling.
 - **1 model call** for the one question rules cannot answer: *does this cart
   match what the human asked for?* Strict typed JSON, provider timeout,
   untrusted text fenced as data, and the cap deliberately kept out of the
@@ -50,6 +53,51 @@ authorisation:
   A degraded intent check fails to `STEP_UP`, never to silent auto-approval.
 - A **hash-chained ledger** and a **dispute evidence pack** on every decision,
   either way.
+
+### The second layer: what one cart cannot show
+
+Some attacks are only visible across many carts, and every individual verdict
+in them is correct. `parchi/behavior.py` watches the sequence: purchase
+velocity, one coupon code swept across many mandates, and the same code claimed
+at different values in different carts. These raise alerts and can never change
+a verdict, which is the same enforcement/detection split the rest of the system
+keeps.
+
+Two shapes are never accidents, and the sharpest is an **agent swarm**: several
+genuinely registered agent credentials all presenting slips for one payer.
+Every deterministic check passes for every one of them. That pattern goes to an
+**AI adjudicator**, which reads the situation and answers what a counter
+cannot: is this account being *used*, or *worked*? On a confident yes the
+account is cooled for ten minutes, enforced deterministically before the engine
+runs.
+
+That adjudicator is deliberately outside the payment path in both senses. It
+cannot change a verdict, and it runs on its own thread after the decision is
+made, so a slow model costs nobody a wait. A wrong conviction costs a cooldown
+a human lifts from the console. It can never cost a silently stolen purchase.
+
+### Measuring the AI that can refuse a customer
+
+`eval/adjudicator.py` scores the adjudicator against twelve hand-written
+situations, half of them ordinary customers who happen to trip a counter. The
+benign half is the point: a model that convicts everything scores perfect
+recall and is useless.
+
+The first version convicted **15 of 18** benign judgements. Writing the cost
+asymmetry into the prompt took it to **18/18 attacks caught with 16/18
+customers left alone**. Both runs are in `FAILURES.md` entry 16. This is the
+single result I would most want a risk reviewer to look at, because the failure
+was invisible to every test that existed at the time.
+
+### The operations console
+
+`/console` is the staff side: a real sign-in (scrypt, per-account lockout, and
+the password never in source), an alert feed where every entry names the
+account it was about, the adjudicator's verdict with its confidence and model,
+a per-account release button, and an on/off switch for the AI gate so the
+person paying the token bill can cap it. Turning it off stops model calls and
+automatic cooldowns; the deterministic alerts keep flowing, because cheaper
+must not mean blind.
 
 ## The Razorpay integration
 
@@ -69,14 +117,22 @@ tables, provider stamps and reproduction commands in the README. The headline
 row is stamped with the provider that produced it, and the model-run table is
 published next to the heuristic one rather than blended into it.
 
+The full model run is published with its own hash-chained ledger, written in
+the same pass, and a test asserts that the ledger's records fall inside the
+window of the run that reports them. That test exists because they once did
+not: the previously published ledger was from a different run hours earlier,
+which is `FAILURES.md` entry 17.
+
 The held-out set (`python eval/heldout.py`) is the number that answers "is this
-overfit to its own generator": **13/13 hand-written cases, 100% precision, 0
-false blocks**, in CI next to the 48-pattern attack suite.
+overfit to its own generator": hand-written cases, every one handled as
+specified, 0 false blocks, in CI next to the 48-pattern attack suite.
 
 ## What is deliberately not claimed
 
 Hardware-backed keys, multi-instance nonce stores, shared agent registry, UPI
-Reserve Pay provisioning, real traffic. All named in the README's *Known
-limitations*: a hackathon build pretending to be production-grade is the
-actual red flag. `FAILURES.md` keeps the full post-mortem of everything that
-broke on the way.
+Reserve Pay provisioning, real traffic. The behavioural detectors and the
+cooldown store are per-process too, so they are a design and an interface
+rather than a deployment. All named in the README's *Known limitations*: a
+hackathon build pretending to be production-grade is the actual red flag.
+`FAILURES.md` keeps the full post-mortem of everything that broke on the way,
+including the two entries where the thing that broke was my own measurement.

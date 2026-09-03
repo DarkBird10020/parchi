@@ -14,6 +14,60 @@ off a script is the one mistake this project cannot afford to make on camera.
 
 ---
 
+## What is actually being judged
+
+Straight from Razorpay's own pages, so the script can aim at it rather than at
+a general idea of a good demo.
+
+**The Track 02 bar, quoted:**
+
+> "Stop the merchant losing money to fraud, returns and chargebacks. Build a
+> working detector, verifier or auto-responder for one class of loss, with
+> measured precision and recall on a held-out test set."
+>
+> "Honest metrics including false-positive cost. Strictly defense-only:
+> anything offense-capable is disqualified."
+
+**The four parameters submissions are scored on**, and the beat in this script
+that answers each:
+
+| Judged on | Where this video earns it |
+|:--- |:--- |
+| **Problem taste** (a real financial or merchant problem) | 0:00-0:40, the gap UPI cannot close |
+| **Build quality** (clean repo, reliable execution, code you can trust) | 0:40-1:35 running live, and the repo itself |
+| **AI judgment** (AI where it belongs, deterministic where it does not) | 3:55-4:35, twelve rules and exactly one model call |
+| **Failure recovery** (what broke, and how you fixed it) | 3:05-3:55, FAILURES entry 16 |
+
+Two lines of their guidance are worth taping to the monitor:
+
+> "Record your pitch video like you are explaining the build to an engineer,
+> not a recruiter. Focus on architecture and trade-offs."
+
+> "A complete, working project in a narrower scope will outperform an ambitious
+> but incomplete one."
+
+Both are already true of this build. The video's only job is to not get in the
+way of them.
+
+### How to record it
+
+**Screen recording with your own voice over it.** Not an animation, not a
+generated video, not slides.
+
+The whole argument of this project is that showing beats claiming, and a panel
+that has been told to judge execution reliability wants to watch the thing run.
+A polished animated video says the opposite of what a risk submission should
+say, and it costs you the one thing you cannot fake: a page responding in real
+time. There is also a panel interview immediately after, where every claim gets
+tested, so a video that oversells is a debt you pay in the interview.
+
+Concretely: OBS or the Windows Game Bar (`Win+G`), 1080p, screen plus
+microphone. Your face is optional. The terminal and the browser are not.
+
+Unlisted YouTube link, which is what the form asks for.
+
+---
+
 ## 0:00-0:40: The problem (40s)
 
 **On screen:** the landing page / hero image, or you talking to camera.
@@ -280,6 +334,60 @@ This is your strongest 50 seconds. Do not rush it.
    shared nonce store and agent registry, a signed external anchor for the
    ledger, and shared state behind the behavioural detectors, which are
    per-process today.
+
+---
+
+## The submission form, answered
+
+The form asks for the track, the project name, the problem statement, the repo
+URL, the video URL, and **what broke and how it was resolved**. That last field
+is a scored parameter, not a formality, and `FAILURES.md` is seventeen entries
+long. Paste this instead, and link the file.
+
+> Three worth naming, all measured rather than remembered.
+>
+> **The AI that blocks accounts was convicting innocent customers.** I built an
+> adjudicator that reads an account's behaviour and can lock it for ten minutes.
+> It caught every attack I threw at it, so it looked finished. Then I noticed
+> every deterministic check in the repo is scored against a thousand rows while
+> the one component that can refuse a real customer was scored against nothing.
+> I wrote the eval that should have existed first: twelve situations, half of
+> them ordinary customers who trip a counter. It convicted fifteen of eighteen
+> benign cases. Its perfect recall was not skill; a rule that always says yes
+> catches every attack too. The prompt listed what attacks look like and never
+> said what clearing someone looks like. Writing the cost asymmetry into the
+> prompt took it to 18/18 attacks caught with 16/18 customers left alone.
+> `eval/adjudicator.py` re-runs the measurement. FAILURES entry 16.
+>
+> **The evidence published beside my headline numbers was from a different
+> run.** The ledger linked as proof of the full model run ended 5,550 seconds
+> before that run started, and the results file named a third file that a later
+> run had overwritten. Every artefact verified on its own; the claim that one
+> was evidence for the other did not. The cause was that a full batch always
+> wrote the same ledger path, so publishing meant remembering to copy a file.
+> `evaluate.py` now takes `--ledger`, the run was redone on a quiet tree, and a
+> test asserts a published ledger's records fall inside the window of the run
+> reporting them. The honest consequence: recall went 97.1% to 99.3% and false
+> blocks went 12 to 22, and I published the worse-looking half. FAILURES 17.
+>
+> **Two prompt fixes that were obviously right measured worse.** The model was
+> re-deciding the spending cap, so I told it not to; it invented a different
+> price judgement instead. I forbade price reasoning entirely; that was worse
+> again. Three full batches, about two hours, to arrive back where I started.
+> Adding a rule to a prompt does not delete a behaviour, it moves it. FAILURES
+> 15, with both measured tables.
+>
+> Full log, seventeen entries with what I assumed, what it actually was, and
+> what it cost: [FAILURES.md](FAILURES.md)
+
+### If they ask why the numbers are not all perfect
+
+Because they are measured. The reproducible offline run catches 280/280 with
+zero false blocks; the live model run catches 278/280 and wrongly blocks 22.
+Both are published, next to each other, with the ledger for each. The gap
+between them is the finding, not an embarrassment: it is what a shared
+inference endpoint on a slow day does to a four-second budget, and the design
+turns that into customers routed to a human rather than violations let through.
 
 ---
 

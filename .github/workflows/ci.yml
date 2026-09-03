@@ -144,6 +144,14 @@ jobs:
               raise SystemExit(f"scenarios with no expected verdict in CI: {sorted(missing)}")
           failed = False
           for scenario, want in expected.items():
+              # From a clean account each time. The coupon scenarios cool the
+              # account down for ten minutes, deterministically and with no
+              # model, which is the feature working: without this reset every
+              # scenario after them is correctly BLOCKED by that cooldown and
+              # the sweep measures the cooldown instead of the scenario.
+              urllib.request.urlopen(urllib.request.Request(
+                  "http://127.0.0.1:8000/api/reset", data=b"",
+                  headers={"content-type": "application/json"}), timeout=20).read()
               req = urllib.request.Request(
                   "http://127.0.0.1:8000/api/authorize",
                   data=json.dumps({"scenario": scenario}).encode(),

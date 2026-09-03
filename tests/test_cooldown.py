@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import time
 
+import pytest
 from fastapi.testclient import TestClient
 
 from demo import server
@@ -357,3 +358,52 @@ def test_turning_the_gate_off_does_not_strand_the_claim(monkeypatch):
     finally:
         server.cooldowns.reset()
         server.swarm_seen.clear()
+
+
+def test_a_coupon_claimed_at_two_values_cools_the_account_without_a_model(monkeypatch):
+    """The operator's case: the claimed value was raised, so block the account.
+
+    Deliberately with the provider off and the adjudicator stubbed to explode.
+    This decision is arithmetic, so it must hold with no key, no network and no
+    model, which is also what makes it hold in CI and on a fresh clone.
+    """
+    def never(*args, **kwargs):
+        raise AssertionError("a coupon value claim is arithmetic, not a judgement")
+
+    monkeypatch.setattr(server, "assess_attack", never)
+    server.cooldowns.reset()
+    client.post("/api/reset")
+    try:
+        first = client.post("/api/authorize", json={"scenario": "coupon_drift"}).json()
+        assert first["decision"]["verdict"] == "BLOCK"
+
+        held = server.cooldowns.check("usr_demo")
+        assert held.active, "the account was not cooled after the value was raised"
+        assert "different values" in held.reason
+
+        kinds = {a["kind"] for a in client.get(
+            "/api/alerts", params={"limit": 40}).json()["alerts"]}
+        assert "coupon_abuse_confirmed" in kinds
+        assert "account_cooled" in kinds
+    finally:
+        server.cooldowns.reset()
+
+
+def test_the_cooldown_then_stops_the_next_purchase(monkeypatch):
+    """Refusing an attempt and stopping an attacker are different things.
+
+    This spillover is the feature, not a bug: an account that was caught
+    working the coupon rail does not get to buy something else a second later.
+    CI resets between scenarios for exactly this reason.
+    """
+    monkeypatch.setattr(server, "assess_attack",
+                        lambda *a, **k: pytest.fail("no model should be asked"))
+    server.cooldowns.reset()
+    client.post("/api/reset")
+    try:
+        client.post("/api/authorize", json={"scenario": "coupon_drift"})
+        after = client.post("/api/authorize", json={"scenario": "allow"}).json()
+        assert after["decision"]["verdict"] == "BLOCK"
+        assert "cooldown" in after["decision"]["reason"]
+    finally:
+        server.cooldowns.reset()

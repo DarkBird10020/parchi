@@ -83,6 +83,16 @@ engine = Engine(ledger=Ledger(LEDGER_PATH), nonces=nonces, agents=agents,
                 provider=os.environ.get("PARCHI_DEMO_PROVIDER", "auto"), timeout=DEMO_TIMEOUT)
 razorpay = RazorpayClient.from_env()
 HUMAN_APPROVAL_SECRET = os.environ.get("PARCHI_HUMAN_APPROVAL_SECRET", "").strip()
+
+# The operations console. A shared token, not a login: this is a hackathon
+# build, and the honest thing is to make the mechanism obvious rather than dress
+# a single secret up as an identity system. A real deployment puts this behind
+# the company IdP so an alert is attributable to a person, and README says so.
+#
+# Unset means the console is OFF, not open. An internal fraud console that ships
+# world-readable by default is worse than no console: it hands an attacker the
+# map of which of their attempts were noticed.
+CONSOLE_TOKEN = os.environ.get("PARCHI_CONSOLE_TOKEN", "").strip()
 state_lock = threading.Lock()
 authorizations: dict[str, dict[str, Any]] = {}
 trusted_keys = {"usr_demo": PUB}
@@ -996,6 +1006,75 @@ def chat(req: ChatRequest):
         "threat": threat,
         "shop": catalogue["shop"]["name"],
     }
+
+# --------------------------------------------------------------------------
+# operations console
+# --------------------------------------------------------------------------
+
+def require_console(request: Request) -> None:
+    """Gate the console, and fail closed when it was never configured.
+
+    Constant-time comparison because a token checked with `==` leaks its own
+    prefix to anyone willing to time the responses, and this endpoint exists to
+    be looked at by people who are already interested in the internals.
+    """
+    if not CONSOLE_TOKEN:
+        raise HTTPException(
+            503,
+            "the operations console is not enabled. Set PARCHI_CONSOLE_TOKEN "
+            "and restart. It is off rather than open by default.",
+        )
+    supplied = request.headers.get("X-Parchi-Console-Token", "")
+    if not secrets.compare_digest(CONSOLE_TOKEN, supplied):
+        raise HTTPException(401, "not authorised for the operations console")
+
+
+@app.get("/console", include_in_schema=False)
+def console_page():
+    """The page loads for anyone; every byte of data on it does not.
+
+    Serving the shell unauthenticated keeps the token out of the URL, which is
+    where it would end up in browser history, referrer headers and any proxy log
+    in between if the page demanded it before rendering.
+    """
+    return FileResponse(os.path.join(HERE, "console.html"))
+
+
+@app.get("/api/console/feed")
+def console_feed(request: Request, limit: int = 100):
+    """Everything an operator needs to answer "is something happening right now".
+
+    Reading this verifies the ledger, so opening the console is itself a check.
+    """
+    require_console(request)
+    chain = check_chain_and_alert()
+    with state_lock:
+        recent = list(alerts[-limit:])
+
+    by_kind: dict[str, int] = {}
+    by_severity = {"critical": 0, "high": 0, "info": 0}
+    for a in recent:
+        by_kind[a["kind"]] = by_kind.get(a["kind"], 0) + 1
+        if a["severity"] in by_severity:
+            by_severity[a["severity"]] += 1
+
+    return {
+        "alerts": list(reversed(recent)),
+        "counts": {"total": len(recent), "by_kind": by_kind, "by_severity": by_severity},
+        "ledger": chain,
+        "authorizations": len(authorizations),
+        "webhook_configured": bool(ALERT_WEBHOOK),
+        "intent_provider": resolve_provider(engine.provider),
+        "server_time": int(time.time() * 1000),
+    }
+
+
+@app.get("/api/console/ping")
+def console_ping(request: Request):
+    """What the sign-in box calls to find out whether a token is any good."""
+    require_console(request)
+    return {"ok": True}
+
 
 @app.get("/api/alerts")
 def list_alerts(limit: int = 20):

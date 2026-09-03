@@ -249,6 +249,38 @@ reason    : cart contains ['electronics'], outside allowed categories ['footwear
 Nobody has to notice. The refund is a consequence of the rule, not a customer
 service decision, and it is written into the hash chain like any other verdict.
 
+### The operations console
+
+Alerts are no use if the only person who sees them is the customer whose purchase
+was refused. `/console` is the internal view: every refusal across every merchant
+on this checkpoint, worst first, with the live state of the audit chain and a
+breakdown of what is being attempted.
+
+```bash
+PARCHI_CONSOLE_TOKEN=... python demo/server.py    # then open /console
+```
+
+Four things about how it is gated, because a fraud console is exactly the page an
+attacker would most like to read:
+
+- **Unset means off, not open.** With no token configured the API returns 503. An
+  internal console that ships world-readable by default hands an attacker the map
+  of which of their attempts were noticed.
+- **The page shell loads without a token; none of its data does.** That keeps the
+  token out of the URL, where it would end up in browser history, referrer headers
+  and every proxy log in between. The token goes in a header, and the page fetches
+  its own data after sign-in.
+- **Constant-time comparison.** A token checked with `==` leaks its own prefix to
+  anyone willing to time the responses.
+- **The token lives in `sessionStorage`**, so it does not outlive the tab.
+
+Opening the console verifies the ledger, so a tampered log is found by whoever
+looks next rather than by whoever clicks Tamper in the demo.
+
+It is a shared token, not an identity. Every alert is attributable to a
+transaction but not to the person reading it, and a real deployment puts this
+behind the company IdP before anyone relies on it. That is stated on the page
+itself rather than left for someone to discover.
 ### Who gets told
 
 A popup tells whoever happens to be looking, which on a payments system at 3am is

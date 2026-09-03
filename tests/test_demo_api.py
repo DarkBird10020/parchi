@@ -498,3 +498,82 @@ def test_the_history_survives_a_page_the_browser_never_had_open():
     second = client.get("/api/alerts").json()["alerts"]
     assert [a["id"] for a in first] == [a["id"] for a in second]
     assert any(a["kind"] == "agent_impersonation" for a in second)
+
+
+# --------------------------------------------------------------------------
+# the operations console
+# --------------------------------------------------------------------------
+
+def test_the_console_is_off_rather_than_open_when_unconfigured(monkeypatch):
+    """An internal fraud console that ships world-readable by default is worse
+    than no console: it hands an attacker the map of which of their attempts
+    were noticed."""
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "")
+    r = client.get("/api/console/feed")
+    assert r.status_code == 503
+    assert "not enabled" in r.json()["detail"]
+
+
+@pytest.mark.parametrize("supplied", [
+    None,               # no header at all
+    "",                 # empty
+    "wrong",            # wrong
+    "s3cret-ops-toke",  # one character short
+    "s3cret-ops-tokenx",  # one character long
+    "S3CRET-OPS-TOKEN",  # right characters, wrong case
+])
+def test_only_the_exact_console_token_is_accepted(monkeypatch, supplied):
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "s3cret-ops-token")
+    headers = {} if supplied is None else {"X-Parchi-Console-Token": supplied}
+    assert client.get("/api/console/ping", headers=headers).status_code == 401
+
+
+def test_the_correct_token_gets_in(monkeypatch):
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "s3cret-ops-token")
+    r = client.get("/api/console/ping",
+                   headers={"X-Parchi-Console-Token": "s3cret-ops-token"})
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_the_console_page_loads_without_a_token_but_carries_no_data():
+    """The shell is public so the token never has to travel in the URL, where it
+    would land in history, referrer headers and every proxy log in between."""
+    r = client.get("/console")
+    assert r.status_code == 200
+    body = r.text
+    assert "operations console" in body.lower()
+    # No alert *content* baked into the page. "ledger_tampered" appears there as
+    # a styling constant, so asserting on the kind name would fail for the wrong
+    # reason. An alert id is data, and can only appear if data leaked in.
+    assert "alt_" not in body
+    assert "Audit log has been altered" not in body
+    assert "X-Parchi-Console-Token" in body      # it fetches with the header
+
+
+def test_the_feed_summarises_what_is_being_attempted(monkeypatch):
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    for scenario in ("payee_substitution", "over_cap", "expired"):
+        client.post("/api/authorize", json={"scenario": scenario})
+    d = client.get("/api/console/feed",
+                   headers={"X-Parchi-Console-Token": "tok"}).json()
+
+    assert d["counts"]["total"] >= 3
+    assert d["counts"]["by_severity"]["critical"] >= 1   # payee substitution
+    assert d["counts"]["by_severity"]["info"] >= 1       # the expired slip
+    assert "payee_substitution" in d["counts"]["by_kind"]
+    assert d["ledger"]["intact"] is True
+    assert d["intent_provider"]
+
+
+def test_opening_the_console_verifies_the_audit_log(monkeypatch):
+    """Reading the feed is itself a check, so a tampered log is found by whoever
+    opens the console rather than by whoever clicks a button in the demo."""
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    client.post("/api/authorize", json={"scenario": "allow"})
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+    client.post("/api/tamper")
+
+    d = client.get("/api/console/feed",
+                   headers={"X-Parchi-Console-Token": "tok"}).json()
+    assert d["ledger"]["intact"] is False
+    assert any(a["kind"] == "ledger_tampered" for a in d["alerts"])

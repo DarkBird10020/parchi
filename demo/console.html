@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>Parchi operations console</title>
+<style>
+  /* Darker than the customer page on purpose. This is the back office, it gets
+     looked at for hours, and it should never be mistaken for the demo in a
+     screenshot. */
+  :root{
+    --bg:#14120F; --panel:#1C1A16; --panel-2:#232019; --rule:#332F27;
+    --ink:#F2EEE4; --ink-2:#BDB6A6; --ink-3:#847C6C;
+    --critical:#E2593B; --high:#D19A1E; --info:#5B8F76; --ok:#4E9E7A;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none!important}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
+       font-size:13px; line-height:1.55}
+  a{color:var(--high)}
+  .wrap{max-width:1240px; margin:0 auto; padding:0 26px}
+
+  header{border-bottom:1px solid var(--rule); padding:16px 0; position:sticky;
+         top:0; background:var(--bg); z-index:10}
+  header .wrap{display:flex; align-items:center; gap:16px}
+  .brand{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.02em}
+  .brand .mark{width:24px; height:24px; border-radius:3px; display:grid;
+               place-items:center; background:var(--ink); color:var(--bg); font-size:13px}
+  .badge{font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
+         border:1px solid var(--rule); color:var(--ink-3); padding:3px 8px; border-radius:2px}
+  .spacer{margin-left:auto}
+  .live{display:flex; align-items:center; gap:7px; color:var(--ink-3); font-size:11.5px}
+  .dot{width:7px; height:7px; border-radius:50%; background:var(--ok)}
+  .dot.stale{background:var(--critical)}
+
+  /* sign in */
+  .gate{max-width:520px; margin:90px auto; padding:26px; border:1px solid var(--rule);
+        background:var(--panel); border-radius:3px}
+  .gate h1{font-size:19px; margin:0 0 8px}
+  .gate p{color:var(--ink-2); margin:0 0 18px}
+  .gate form{display:flex; gap:8px}
+  .gate input{flex:1; background:var(--bg); border:1px solid var(--rule); color:var(--ink);
+              padding:10px 12px; border-radius:2px; font-family:var(--mono); font-size:13px}
+  .gate input:focus{outline:2px solid var(--high); outline-offset:1px}
+  .btn{background:var(--ink); color:var(--bg); border:0; padding:10px 18px; border-radius:2px;
+       font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase;
+       cursor:pointer}
+  .btn.ghost{background:transparent; color:var(--ink-2); border:1px solid var(--rule)}
+  .btn:hover{opacity:.88}
+  .err{color:var(--critical); margin-top:12px; min-height:19px}
+
+  /* stats */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1px;
+         background:var(--rule); border:1px solid var(--rule); margin:22px 0}
+  .stat{background:var(--panel); padding:15px 17px}
+  .stat .k{font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3)}
+  .stat .v{font-size:27px; margin-top:5px; letter-spacing:-0.02em}
+  .stat .v.critical{color:var(--critical)}
+  .stat .v.ok{color:var(--ok)}
+  .stat .sub{font-size:11px; color:var(--ink-3); margin-top:3px}
+
+  .cols{display:grid; grid-template-columns:1.55fr .95fr; gap:18px; align-items:start;
+        padding-bottom:60px}
+  @media(max-width:960px){ .cols{grid-template-columns:1fr} }
+  .panel{border:1px solid var(--rule); background:var(--panel); border-radius:3px}
+  .panelhead{display:flex; align-items:center; gap:10px; padding:11px 15px;
+             border-bottom:1px solid var(--rule); font-size:10.5px; letter-spacing:.14em;
+             text-transform:uppercase; color:var(--ink-3)}
+  .panelhead .r{margin-left:auto; text-transform:none; letter-spacing:0}
+
+  .feed{max-height:66vh; overflow-y:auto}
+  .row{padding:12px 15px; border-bottom:1px solid var(--rule); border-left:3px solid transparent}
+  .row:last-child{border-bottom:0}
+  .row.critical{border-left-color:var(--critical); background:#221713}
+  .row.high{border-left-color:var(--high)}
+  .row.info{border-left-color:var(--info)}
+  .row .top{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
+  .sev{font-size:10px; letter-spacing:.12em; text-transform:uppercase; padding:2px 6px;
+       border-radius:2px; border:1px solid var(--rule)}
+  .sev.critical{color:var(--critical); border-color:var(--critical)}
+  .sev.high{color:var(--high); border-color:var(--high)}
+  .sev.info{color:var(--info); border-color:var(--info)}
+  .kind{color:var(--ink)}
+  .when{margin-left:auto; color:var(--ink-3); font-size:11.5px}
+  .sum{margin-top:6px; font-family:Georgia, serif; font-size:14.5px}
+  .det{margin-top:5px; color:var(--ink-2); font-size:11.5px; word-break:break-word;
+       white-space:pre-wrap}
+  .meta{margin-top:6px; color:var(--ink-3); font-size:11px}
+  .empty{padding:40px 16px; text-align:center; color:var(--ink-3)}
+
+  .kv{padding:13px 15px; border-bottom:1px solid var(--rule)}
+  .kv:last-child{border-bottom:0}
+  .kv .k{color:var(--ink-3); font-size:11px; letter-spacing:.1em; text-transform:uppercase}
+  .kv .v{margin-top:4px; font-size:14px}
+  .kv .v.bad{color:var(--critical)}
+  .kv .v.good{color:var(--ok)}
+  .bars{padding:6px 15px 14px}
+  .bar{display:flex; align-items:center; gap:9px; margin-top:8px; font-size:12px}
+  .bar .n{flex:0 0 152px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis;
+          white-space:nowrap}
+  .bar .t{flex:1; height:8px; background:var(--panel-2); border-radius:1px; overflow:hidden}
+  .bar .f{height:100%; background:var(--ink-3)}
+  .bar .f.critical{background:var(--critical)}
+  .bar .f.high{background:var(--high)}
+  .bar .c{flex:0 0 28px; text-align:right; color:var(--ink-3)}
+  .foot{color:var(--ink-3); font-size:11.5px; padding:16px 0 40px; border-top:1px solid var(--rule)}
+</style>
+</head>
+<body>
+
+<div id="gate" class="gate">
+  <h1>Parchi operations console</h1>
+  <p>Internal. Refused purchases, tampered audit logs and automatic refunds
+     across every merchant on this checkpoint.</p>
+  <form id="gateform">
+    <label class="sr" for="token" style="position:absolute;left:-9999px">Console token</label>
+    <input id="token" type="password" placeholder="console token" autocomplete="off" />
+    <button class="btn" type="submit">Sign in</button>
+  </form>
+  <div class="err" id="gateerr"></div>
+</div>
+
+<div id="app" hidden>
+  <header>
+    <div class="wrap">
+      <div class="brand"><span class="mark">प</span> Parchi</div>
+      <span class="badge">operations</span>
+      <span class="badge" id="providerBadge">provider</span>
+      <div class="spacer"></div>
+      <div class="live"><span class="dot" id="liveDot"></span><span id="liveText">live</span></div>
+      <button class="btn ghost" id="signout">Sign out</button>
+    </div>
+  </header>
+
+  <div class="wrap">
+    <div class="stats">
+      <div class="stat">
+        <div class="k">Open critical</div>
+        <div class="v" id="sCrit">0</div>
+        <div class="sub" id="sCritSub">nothing needing a person</div>
+      </div>
+      <div class="stat">
+        <div class="k">High</div><div class="v" id="sHigh">0</div>
+        <div class="sub">refused, worth reading</div>
+      </div>
+      <div class="stat">
+        <div class="k">Audit chain</div>
+        <div class="v" id="sChain">-</div>
+        <div class="sub" id="sChainSub">verified on every read</div>
+      </div>
+      <div class="stat">
+        <div class="k">Authorizations</div><div class="v" id="sAuth">0</div>
+        <div class="sub">held this process</div>
+      </div>
+    </div>
+
+    <div class="cols">
+      <div class="panel">
+        <div class="panelhead">Alert feed <span class="r" id="feedMeta"></span></div>
+        <div class="feed" id="feed"></div>
+      </div>
+
+      <div>
+        <div class="panel" style="margin-bottom:18px">
+          <div class="panelhead">Audit log</div>
+          <div class="kv"><div class="k">Chain</div><div class="v" id="chainState">-</div></div>
+          <div class="kv"><div class="k">Records</div><div class="v" id="chainCount">-</div></div>
+          <div class="kv"><div class="k">Alert delivery</div><div class="v" id="webhookState">-</div></div>
+        </div>
+        <div class="panel">
+          <div class="panelhead">What is being attempted</div>
+          <div class="bars" id="bars"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="foot">
+      A shared token, not an identity. Every alert here is attributable to a
+      transaction but not to the person reading it, so a real deployment puts
+      this behind the company IdP before anyone relies on it.
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
+  {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+
+// sessionStorage, not localStorage: an operations token should not outlive the
+// tab it was typed into.
+const TOKEN_KEY = "parchi.console.token";
+let token = sessionStorage.getItem(TOKEN_KEY) || "";
+let timer = null;
+
+async function call(path){
+  const r = await fetch(path, {headers: {"X-Parchi-Console-Token": token}});
+  if(r.status === 401) throw new Error("unauthorised");
+  if(r.status === 503) throw new Error(
+    "the console is not enabled on this server. Set PARCHI_CONSOLE_TOKEN and restart.");
+  if(!r.ok) throw new Error("HTTP " + r.status);
+  return r.json();
+}
+
+function severityRank(s){ return s === "critical" ? 0 : s === "high" ? 1 : 2; }
+
+function renderFeed(alerts){
+  const feed = $("#feed");
+  if(!alerts.length){
+    feed.innerHTML = '<div class="empty">Nothing raised. Refused purchases, a tampered '
+      + 'audit log and automatic refunds all land here.</div>';
+    return;
+  }
+  feed.innerHTML = alerts.map(a => {
+    const when = new Date(a.ts).toLocaleString();
+    return '<div class="row ' + esc(a.severity) + '">'
+      + '<div class="top">'
+      +   '<span class="sev ' + esc(a.severity) + '">' + esc(a.severity) + '</span>'
+      +   '<span class="kind">' + esc(a.kind) + '</span>'
+      +   '<span class="when">' + esc(when) + '</span>'
+      + '</div>'
+      + '<div class="sum">' + esc(a.summary) + '</div>'
+      + '<div class="det">' + esc(a.detail) + '</div>'
+      + '<div class="meta">' + esc(a.id)
+      +   (a.txn_id ? ' &middot; txn ' + esc(a.txn_id) : '')
+      +   ' &middot; sent to ' + esc((a.delivered || []).join(", ") || "nowhere")
+      + '</div>'
+      + '</div>';
+  }).join("");
+}
+
+function renderBars(byKind){
+  const entries = Object.entries(byKind).sort((a, b) => b[1] - a[1]);
+  if(!entries.length){ $("#bars").innerHTML = '<div class="empty">nothing yet</div>'; return; }
+  const max = Math.max(...entries.map(e => e[1]));
+  const critical = new Set(["mandate_forgery","payee_substitution","agent_impersonation",
+                            "prompt_injection","ledger_tampered","probing","discount_abuse",
+                            "price_manipulation"]);
+  $("#bars").innerHTML = entries.map(([kind, n]) => {
+    const cls = critical.has(kind) ? "critical" : (kind === "expired_mandate" ? "" : "high");
+    return '<div class="bar"><div class="n" title="' + esc(kind) + '">' + esc(kind) + '</div>'
+      + '<div class="t"><div class="f ' + cls + '" style="width:'
+      + Math.round(n / max * 100) + '%"></div></div>'
+      + '<div class="c">' + n + '</div></div>';
+  }).join("");
+}
+
+async function refresh(){
+  try {
+    const d = await call("/api/console/feed");
+    renderFeed(d.alerts);
+    renderBars(d.counts.by_kind);
+
+    $("#sCrit").textContent = d.counts.by_severity.critical;
+    $("#sCrit").className = "v" + (d.counts.by_severity.critical ? " critical" : " ok");
+    $("#sCritSub").textContent = d.counts.by_severity.critical
+      ? "needs a person" : "nothing needing a person";
+    $("#sHigh").textContent = d.counts.by_severity.high;
+    $("#sAuth").textContent = d.authorizations;
+
+    const intact = d.ledger.intact;
+    $("#sChain").textContent = intact ? "intact" : "BROKEN";
+    $("#sChain").className = "v" + (intact ? " ok" : " critical");
+    $("#sChainSub").textContent = d.ledger.records + " records";
+    $("#chainState").textContent = d.ledger.detail;
+    $("#chainState").className = "v" + (intact ? " good" : " bad");
+    $("#chainCount").textContent = d.ledger.records;
+    $("#webhookState").textContent = d.webhook_configured
+      ? "support console + webhook" : "support console only";
+    $("#providerBadge").textContent = "intent: " + d.intent_provider;
+    $("#feedMeta").textContent = d.counts.total + " shown";
+
+    $("#liveDot").className = "dot";
+    $("#liveText").textContent = "updated " + new Date(d.server_time).toLocaleTimeString();
+  } catch(e){
+    if(e.message === "unauthorised"){ signOut("that token was not accepted"); return; }
+    // A console that silently stops updating is worse than one that says so:
+    // "no alerts" and "not talking to the server" look identical otherwise.
+    $("#liveDot").className = "dot stale";
+    $("#liveText").textContent = "not updating: " + e.message;
+  }
+}
+
+function signIn(){
+  $("#gate").hidden = true;
+  $("#app").hidden = false;
+  refresh();
+  clearInterval(timer);
+  timer = setInterval(refresh, 5000);
+}
+
+function signOut(message){
+  clearInterval(timer);
+  token = "";
+  sessionStorage.removeItem(TOKEN_KEY);
+  $("#app").hidden = true;
+  $("#gate").hidden = false;
+  $("#gateerr").textContent = message || "";
+  $("#token").value = "";
+  $("#token").focus();
+}
+
+$("#gateform").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  token = $("#token").value.trim();
+  if(!token) return;
+  $("#gateerr").textContent = "";
+  try {
+    await call("/api/console/ping");
+    sessionStorage.setItem(TOKEN_KEY, token);
+    signIn();
+  } catch(err){
+    token = "";
+    $("#gateerr").textContent = err.message === "unauthorised"
+      ? "That token was not accepted." : err.message;
+  }
+});
+
+$("#signout").addEventListener("click", () => signOut(""));
+
+// A token already in this tab means straight in, but it is still checked before
+// the shell is shown, so a revoked token does not leave a stale console open.
+if(token){
+  call("/api/console/ping").then(signIn).catch(() => signOut(""));
+}
+</script>
+</body>
+</html>

@@ -43,6 +43,7 @@ from parchi.mandate import (
     sign_cart,
 )
 from parchi.openai_provider import load_dotenv
+from parchi.operators import OperatorDirectory, SessionStore
 from parchi.razorpay import RazorpayClient, RazorpayError
 from parchi.threat import CRITICAL, ProbeDetector, classify
 
@@ -84,15 +85,19 @@ engine = Engine(ledger=Ledger(LEDGER_PATH), nonces=nonces, agents=agents,
 razorpay = RazorpayClient.from_env()
 HUMAN_APPROVAL_SECRET = os.environ.get("PARCHI_HUMAN_APPROVAL_SECRET", "").strip()
 
-# The operations console. A shared token, not a login: this is a hackathon
-# build, and the honest thing is to make the mechanism obvious rather than dress
-# a single secret up as an identity system. A real deployment puts this behind
-# the company IdP so an alert is attributable to a person, and README says so.
+# The operations console. One operator account, email and password, with the
+# password stored as an scrypt hash in the environment and never in this
+# repository. See `python -m parchi.console_setup`.
 #
 # Unset means the console is OFF, not open. An internal fraud console that ships
 # world-readable by default is worse than no console: it hands an attacker the
 # map of which of their attempts were noticed.
+#
+# PARCHI_CONSOLE_TOKEN remains supported as a machine credential, for a health
+# check or a scraper that has no business typing a password.
 CONSOLE_TOKEN = os.environ.get("PARCHI_CONSOLE_TOKEN", "").strip()
+operators = OperatorDirectory.from_env()
+console_sessions = SessionStore()
 state_lock = threading.Lock()
 authorizations: dict[str, dict[str, Any]] = {}
 trusted_keys = {"usr_demo": PUB}
@@ -1011,22 +1016,80 @@ def chat(req: ChatRequest):
 # operations console
 # --------------------------------------------------------------------------
 
-def require_console(request: Request) -> None:
+class ConsoleLogin(BaseModel):
+    email: str
+    password: str
+
+
+def console_enabled() -> bool:
+    return operators.configured or bool(CONSOLE_TOKEN)
+
+
+def require_console(request: Request) -> str:
     """Gate the console, and fail closed when it was never configured.
 
-    Constant-time comparison because a token checked with `==` leaks its own
-    prefix to anyone willing to time the responses, and this endpoint exists to
-    be looked at by people who are already interested in the internals.
+    Accepts either a signed-in session or the machine token. Returns whoever it
+    decided this was, so an endpoint can record it.
     """
-    if not CONSOLE_TOKEN:
+    if not console_enabled():
         raise HTTPException(
             503,
-            "the operations console is not enabled. Set PARCHI_CONSOLE_TOKEN "
-            "and restart. It is off rather than open by default.",
+            "the operations console is not enabled. Run "
+            "`python -m parchi.console_setup --write` and restart. It is off "
+            "rather than open by default.",
         )
+
+    session = request.headers.get("X-Parchi-Console-Session", "")
+    if session:
+        email = console_sessions.email_for(session)
+        if email:
+            return email
+        raise HTTPException(401, "session expired, sign in again")
+
     supplied = request.headers.get("X-Parchi-Console-Token", "")
-    if not secrets.compare_digest(CONSOLE_TOKEN, supplied):
-        raise HTTPException(401, "not authorised for the operations console")
+    # compare_digest, not ==: a token compared with early exit leaks its own
+    # prefix to anyone willing to time the responses.
+    if CONSOLE_TOKEN and supplied and secrets.compare_digest(CONSOLE_TOKEN, supplied):
+        return "machine-token"
+    raise HTTPException(401, "not authorised for the operations console")
+
+
+@app.post("/api/console/login")
+def console_login(req: ConsoleLogin, request: Request):
+    """Sign in. One account, and a lockout after five wrong tries.
+
+    The failure message is the same whether the email is unknown or the password
+    is wrong, because saying which one was right is how an attacker learns that
+    an address exists.
+    """
+    if not operators.configured:
+        raise HTTPException(
+            503,
+            "no console account is configured. Run "
+            "`python -m parchi.console_setup --write` and restart.",
+        )
+
+    wait = operators.locked_out(req.email)
+    if wait:
+        raise_alert(
+            "console_lockout", CRITICAL,
+            "Repeated failed sign-ins to the operations console",
+            f"Five wrong attempts for '{req.email[:64]}'. Locked for {wait}s.",
+        )
+        raise HTTPException(429, f"too many attempts, try again in {wait}s")
+
+    if not operators.authenticate(req.email, req.password):
+        raise HTTPException(401, "that email and password did not match")
+
+    token = console_sessions.create(operators.email)
+    return {"session": token, "email": operators.email,
+            "expires_in": console_sessions.ttl}
+
+
+@app.post("/api/console/logout")
+def console_logout(request: Request):
+    console_sessions.destroy(request.headers.get("X-Parchi-Console-Session", ""))
+    return {"ok": True}
 
 
 @app.get("/console", include_in_schema=False)
@@ -1046,7 +1109,7 @@ def console_feed(request: Request, limit: int = 100):
 
     Reading this verifies the ledger, so opening the console is itself a check.
     """
-    require_console(request)
+    operator = require_console(request)
     chain = check_chain_and_alert()
     with state_lock:
         recent = list(alerts[-limit:])
@@ -1065,6 +1128,7 @@ def console_feed(request: Request, limit: int = 100):
         "authorizations": len(authorizations),
         "webhook_configured": bool(ALERT_WEBHOOK),
         "intent_provider": resolve_provider(engine.provider),
+        "operator": operator,
         "server_time": int(time.time() * 1000),
     }
 
@@ -1072,8 +1136,7 @@ def console_feed(request: Request, limit: int = 100):
 @app.get("/api/console/ping")
 def console_ping(request: Request):
     """What the sign-in box calls to find out whether a token is any good."""
-    require_console(request)
-    return {"ok": True}
+    return {"ok": True, "operator": require_console(request)}
 
 
 @app.get("/api/alerts")

@@ -4,170 +4,217 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
-<title>Parchi operations console</title>
+<title>Parchi operations</title>
 <style>
-  /* Darker than the customer page on purpose. This is the back office, it gets
-     looked at for hours, and it should never be mistaken for the demo in a
-     screenshot. */
+  /* The same paper the customer page is printed on. The one difference is the
+     ruled band under the header, which says "internal" without needing a colour
+     scheme nobody asked for. */
   :root{
-    --bg:#14120F; --panel:#1C1A16; --panel-2:#232019; --rule:#332F27;
-    --ink:#F2EEE4; --ink-2:#BDB6A6; --ink-3:#847C6C;
-    --critical:#E2593B; --high:#D19A1E; --info:#5B8F76; --ok:#4E9E7A;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    --paper:#F5F1E8; --card:#FFFDF7; --card-2:#F9F2E9;
+    --rule:#DCD4C2; --rule-2:#C9BFA8; --rule-3:#EDE7D9;
+    --ink:#16130E; --ink-2:#3E382D; --ink-3:#6B6151; --ink-4:#9E947F;
+    --stamp:#B4472B;
+    --allow:#17694A; --block:#B4472B; --stepup:#8A6410;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --serif: Georgia, "Iowan Old Style", "Palatino Linotype", "Times New Roman", serif;
   }
   *{box-sizing:border-box}
   [hidden]{display:none!important}
-  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--mono);
-       font-size:13px; line-height:1.55}
-  a{color:var(--high)}
-  .wrap{max-width:1240px; margin:0 auto; padding:0 26px}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--serif);
+       font-size:16px; line-height:1.6; -webkit-font-smoothing:antialiased}
+  a{color:var(--stamp); text-decoration:none}
+  :focus-visible{outline:2px solid var(--stamp); outline-offset:3px}
+  .wrap{max-width:1180px; margin:0 auto; padding:0 40px}
+  @media(max-width:700px){ .wrap{padding:0 20px} }
+  h1,h2{margin:0; font-weight:400; letter-spacing:-0.025em; line-height:1.18}
+  p{margin:0}
+  .mono{font-family:var(--mono)}
 
-  header{border-bottom:1px solid var(--rule); padding:16px 0; position:sticky;
-         top:0; background:var(--bg); z-index:10}
-  header .wrap{display:flex; align-items:center; gap:16px}
-  .brand{display:flex; align-items:center; gap:10px; font-weight:700; letter-spacing:.02em}
-  .brand .mark{width:24px; height:24px; border-radius:3px; display:grid;
-               place-items:center; background:var(--ink); color:var(--bg); font-size:13px}
-  .badge{font-size:10.5px; letter-spacing:.14em; text-transform:uppercase;
-         border:1px solid var(--rule); color:var(--ink-3); padding:3px 8px; border-radius:2px}
+  nav{position:sticky; top:0; z-index:50; background:rgba(245,241,232,.94);
+      backdrop-filter:blur(10px); border-bottom:1px solid var(--rule)}
+  nav .wrap{display:flex; align-items:center; gap:16px; height:70px}
+  .brand{display:flex; align-items:center; gap:11px; font-weight:700; font-size:17px}
+  .brand .mark{width:28px; height:28px; border-radius:4px; display:grid; place-items:center;
+               background:var(--ink); color:var(--paper); font-size:15px}
+  .chip{font-family:var(--mono); font-size:10px; letter-spacing:.16em; text-transform:uppercase;
+        border:1px solid var(--rule-2); color:var(--ink-3); padding:4px 9px; border-radius:2px}
+  .chip.on{border-color:var(--stamp); color:var(--stamp)}
   .spacer{margin-left:auto}
-  .live{display:flex; align-items:center; gap:7px; color:var(--ink-3); font-size:11.5px}
-  .dot{width:7px; height:7px; border-radius:50%; background:var(--ok)}
-  .dot.stale{background:var(--critical)}
+  .who{font-family:var(--mono); font-size:11.5px; color:var(--ink-3)}
+  .band{background:var(--card-2); border-bottom:1px solid var(--rule);
+        font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
+        text-transform:uppercase; color:var(--ink-3)}
+  .band .wrap{padding-top:9px; padding-bottom:9px}
+
+  .btn{appearance:none; font-family:var(--mono); border:1px solid var(--ink);
+       background:transparent; color:var(--ink); padding:11px 20px; border-radius:3px;
+       font-size:12px; letter-spacing:.1em; text-transform:uppercase; cursor:pointer}
+  .btn:hover{background:var(--ink); color:var(--paper)}
+  .btn.primary{background:var(--ink); color:var(--paper)}
+  .btn.sm{padding:7px 12px; font-size:10.5px}
 
   /* sign in */
-  .gate{max-width:520px; margin:90px auto; padding:26px; border:1px solid var(--rule);
-        background:var(--panel); border-radius:3px}
-  .gate h1{font-size:19px; margin:0 0 8px}
-  .gate p{color:var(--ink-2); margin:0 0 18px}
-  .gate form{display:flex; gap:8px}
-  .gate input{flex:1; background:var(--bg); border:1px solid var(--rule); color:var(--ink);
-              padding:10px 12px; border-radius:2px; font-family:var(--mono); font-size:13px}
-  .gate input:focus{outline:2px solid var(--high); outline-offset:1px}
-  .btn{background:var(--ink); color:var(--bg); border:0; padding:10px 18px; border-radius:2px;
-       font-family:var(--mono); font-size:12px; letter-spacing:.08em; text-transform:uppercase;
-       cursor:pointer}
-  .btn.ghost{background:transparent; color:var(--ink-2); border:1px solid var(--rule)}
-  .btn:hover{opacity:.88}
-  .err{color:var(--critical); margin-top:12px; min-height:19px}
+  .gate{max-width:470px; margin:88px auto; background:var(--card);
+        border:1px solid var(--rule); padding:34px 34px 30px;
+        box-shadow:0 24px 48px -30px rgba(22,19,14,.4)}
+  .gate .cap{font-family:var(--mono); font-size:10px; letter-spacing:.24em;
+             color:var(--ink-3); text-align:center; text-transform:uppercase}
+  .gate h1{font-size:26px; text-align:center; margin-top:8px}
+  .gate .lede{color:var(--ink-2); text-align:center; margin-top:12px; font-size:15px}
+  .dash{border-top:1px dashed var(--rule-2); margin:22px 0}
+  .field{margin-bottom:14px}
+  .field label{display:block; font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+               text-transform:uppercase; color:var(--ink-3); margin-bottom:6px}
+  .field input{width:100%; border:1px solid var(--rule); background:var(--paper);
+               padding:11px 13px; border-radius:3px; font-family:var(--mono);
+               font-size:13.5px; color:var(--ink)}
+  .err{color:var(--block); font-size:13.5px; min-height:20px; margin-top:12px;
+       text-align:center}
+  .note{font-family:var(--mono); font-size:10.5px; color:var(--ink-4); text-align:center;
+        margin-top:18px; line-height:1.7}
 
-  /* stats */
-  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:1px;
-         background:var(--rule); border:1px solid var(--rule); margin:22px 0}
-  .stat{background:var(--panel); padding:15px 17px}
-  .stat .k{font-size:10.5px; letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3)}
-  .stat .v{font-size:27px; margin-top:5px; letter-spacing:-0.02em}
-  .stat .v.critical{color:var(--critical)}
-  .stat .v.ok{color:var(--ok)}
-  .stat .sub{font-size:11px; color:var(--ink-3); margin-top:3px}
+  /* dashboard */
+  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+         border:1px solid var(--rule); margin:28px 0; background:var(--card)}
+  .stat{padding:20px 22px; border-right:1px solid var(--rule)}
+  .stat:last-child{border-right:0}
+  @media(max-width:820px){ .stat{border-right:0; border-bottom:1px solid var(--rule)} }
+  .stat .k{font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+           text-transform:uppercase; color:var(--ink-3)}
+  .stat .v{font-family:var(--mono); font-size:30px; margin-top:7px; letter-spacing:-0.02em}
+  .stat .v.bad{color:var(--block)}
+  .stat .v.good{color:var(--allow)}
+  .stat .sub{font-size:13px; color:var(--ink-3); margin-top:4px}
 
-  .cols{display:grid; grid-template-columns:1.55fr .95fr; gap:18px; align-items:start;
-        padding-bottom:60px}
+  .cols{display:grid; grid-template-columns:1.55fr .95fr; gap:20px; align-items:start;
+        padding-bottom:56px}
   @media(max-width:960px){ .cols{grid-template-columns:1fr} }
-  .panel{border:1px solid var(--rule); background:var(--panel); border-radius:3px}
-  .panelhead{display:flex; align-items:center; gap:10px; padding:11px 15px;
-             border-bottom:1px solid var(--rule); font-size:10.5px; letter-spacing:.14em;
-             text-transform:uppercase; color:var(--ink-3)}
+  .panel{background:var(--card); border:1px solid var(--rule)}
+  .panelhead{display:flex; align-items:center; gap:10px; padding:12px 20px;
+             border-bottom:1px dashed var(--rule-2); font-family:var(--mono);
+             font-size:11px; letter-spacing:.08em; text-transform:uppercase;
+             color:var(--ink-3)}
   .panelhead .r{margin-left:auto; text-transform:none; letter-spacing:0}
 
-  .feed{max-height:66vh; overflow-y:auto}
-  .row{padding:12px 15px; border-bottom:1px solid var(--rule); border-left:3px solid transparent}
+  .feed{max-height:68vh; overflow-y:auto}
+  .row{padding:15px 20px; border-bottom:1px solid var(--rule-3);
+       border-left:4px solid var(--rule-2)}
   .row:last-child{border-bottom:0}
-  .row.critical{border-left-color:var(--critical); background:#221713}
-  .row.high{border-left-color:var(--high)}
-  .row.info{border-left-color:var(--info)}
-  .row .top{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap}
-  .sev{font-size:10px; letter-spacing:.12em; text-transform:uppercase; padding:2px 6px;
-       border-radius:2px; border:1px solid var(--rule)}
-  .sev.critical{color:var(--critical); border-color:var(--critical)}
-  .sev.high{color:var(--high); border-color:var(--high)}
-  .sev.info{color:var(--info); border-color:var(--info)}
+  .row.critical{border-left-color:var(--block); background:#FFF8F6}
+  .row.high{border-left-color:var(--stepup)}
+  .row.info{border-left-color:var(--rule-2)}
+  .row .top{display:flex; gap:10px; align-items:baseline; flex-wrap:wrap;
+            font-family:var(--mono); font-size:10.5px; letter-spacing:.1em;
+            text-transform:uppercase}
+  .sev{padding:2px 7px; border:1px solid var(--rule-2); border-radius:2px; color:var(--ink-3)}
+  .sev.critical{color:var(--block); border-color:var(--block)}
+  .sev.high{color:var(--stepup); border-color:var(--stepup)}
   .kind{color:var(--ink)}
-  .when{margin-left:auto; color:var(--ink-3); font-size:11.5px}
-  .sum{margin-top:6px; font-family:Georgia, serif; font-size:14.5px}
-  .det{margin-top:5px; color:var(--ink-2); font-size:11.5px; word-break:break-word;
-       white-space:pre-wrap}
-  .meta{margin-top:6px; color:var(--ink-3); font-size:11px}
-  .empty{padding:40px 16px; text-align:center; color:var(--ink-3)}
+  .when{margin-left:auto; color:var(--ink-4); letter-spacing:0; text-transform:none}
+  .sum{margin-top:8px; font-size:16px; line-height:1.5}
+  .det{margin-top:6px; font-family:var(--mono); font-size:11.5px; color:var(--ink-2);
+       word-break:break-word; white-space:pre-wrap; line-height:1.6}
+  .meta{margin-top:7px; font-family:var(--mono); font-size:10.5px; color:var(--ink-4)}
+  .empty{padding:48px 20px; text-align:center; color:var(--ink-3)}
 
-  .kv{padding:13px 15px; border-bottom:1px solid var(--rule)}
+  .kv{padding:14px 20px; border-bottom:1px solid var(--rule-3)}
   .kv:last-child{border-bottom:0}
-  .kv .k{color:var(--ink-3); font-size:11px; letter-spacing:.1em; text-transform:uppercase}
-  .kv .v{margin-top:4px; font-size:14px}
-  .kv .v.bad{color:var(--critical)}
-  .kv .v.good{color:var(--ok)}
-  .bars{padding:6px 15px 14px}
-  .bar{display:flex; align-items:center; gap:9px; margin-top:8px; font-size:12px}
-  .bar .n{flex:0 0 152px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis;
+  .kv .k{font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+         text-transform:uppercase; color:var(--ink-3)}
+  .kv .v{margin-top:5px; font-family:var(--mono); font-size:13.5px}
+  .kv .v.bad{color:var(--block)}
+  .kv .v.good{color:var(--allow)}
+  .bars{padding:8px 20px 18px}
+  .bar{display:flex; align-items:center; gap:10px; margin-top:9px;
+       font-family:var(--mono); font-size:11.5px}
+  .bar .n{flex:0 0 158px; color:var(--ink-2); overflow:hidden; text-overflow:ellipsis;
           white-space:nowrap}
-  .bar .t{flex:1; height:8px; background:var(--panel-2); border-radius:1px; overflow:hidden}
-  .bar .f{height:100%; background:var(--ink-3)}
-  .bar .f.critical{background:var(--critical)}
-  .bar .f.high{background:var(--high)}
-  .bar .c{flex:0 0 28px; text-align:right; color:var(--ink-3)}
-  .foot{color:var(--ink-3); font-size:11.5px; padding:16px 0 40px; border-top:1px solid var(--rule)}
+  .bar .t{flex:1; height:9px; background:var(--rule-3); overflow:hidden}
+  .bar .f{height:100%; background:var(--ink-4)}
+  .bar .f.critical{background:var(--block)}
+  .bar .f.high{background:var(--stepup)}
+  .bar .c{flex:0 0 26px; text-align:right; color:var(--ink-3)}
+  .foot{border-top:1px solid var(--rule); padding:20px 0 46px; color:var(--ink-3);
+        font-size:14px; max-width:74ch}
 </style>
 </head>
 <body>
 
 <div id="gate" class="gate">
-  <h1>Parchi operations console</h1>
-  <p>Internal. Refused purchases, tampered audit logs and automatic refunds
+  <div class="cap">Parchi &middot; internal</div>
+  <h1>Operations</h1>
+  <p class="lede">Refused purchases, tampered audit logs and automatic refunds,
      across every merchant on this checkpoint.</p>
+  <div class="dash"></div>
   <form id="gateform">
-    <label class="sr" for="token" style="position:absolute;left:-9999px">Console token</label>
-    <input id="token" type="password" placeholder="console token" autocomplete="off" />
-    <button class="btn" type="submit">Sign in</button>
+    <div class="field">
+      <label for="email">Work email</label>
+      <input id="email" type="email" autocomplete="username" placeholder="you@razorpay.com" />
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+    </div>
+    <button class="btn primary" type="submit" id="signin" style="width:100%">Sign in</button>
   </form>
   <div class="err" id="gateerr"></div>
+  <p class="note">One account, locked for five minutes after five wrong tries.<br />
+     The password is stored as an scrypt hash, never as itself.</p>
 </div>
 
 <div id="app" hidden>
-  <header>
+  <nav>
     <div class="wrap">
-      <div class="brand"><span class="mark">प</span> Parchi</div>
-      <span class="badge">operations</span>
-      <span class="badge" id="providerBadge">provider</span>
+      <div class="brand"><span class="mark">&#2346;</span> Parchi</div>
+      <span class="chip on">Operations</span>
+      <span class="chip" id="providerChip">intent</span>
       <div class="spacer"></div>
-      <div class="live"><span class="dot" id="liveDot"></span><span id="liveText">live</span></div>
-      <button class="btn ghost" id="signout">Sign out</button>
+      <span class="who" id="who"></span>
+      <button class="btn sm" id="signout">Sign out</button>
     </div>
-  </header>
+  </nav>
+  <div class="band"><div class="wrap" id="bandText">
+    Internal &middot; every refusal on this checkpoint
+  </div></div>
 
   <div class="wrap">
     <div class="stats">
       <div class="stat">
-        <div class="k">Open critical</div>
+        <div class="k">Needs a person</div>
         <div class="v" id="sCrit">0</div>
-        <div class="sub" id="sCritSub">nothing needing a person</div>
+        <div class="sub" id="sCritSub">critical alerts</div>
       </div>
       <div class="stat">
-        <div class="k">High</div><div class="v" id="sHigh">0</div>
-        <div class="sub">refused, worth reading</div>
+        <div class="k">Refused, worth reading</div>
+        <div class="v" id="sHigh">0</div>
+        <div class="sub">high severity</div>
       </div>
       <div class="stat">
         <div class="k">Audit chain</div>
-        <div class="v" id="sChain">-</div>
+        <div class="v" id="sChain">&ndash;</div>
         <div class="sub" id="sChainSub">verified on every read</div>
       </div>
       <div class="stat">
-        <div class="k">Authorizations</div><div class="v" id="sAuth">0</div>
+        <div class="k">Authorizations</div>
+        <div class="v" id="sAuth">0</div>
         <div class="sub">held this process</div>
       </div>
     </div>
 
     <div class="cols">
       <div class="panel">
-        <div class="panelhead">Alert feed <span class="r" id="feedMeta"></span></div>
+        <div class="panelhead">What the checkpoint refused
+          <span class="r" id="feedMeta"></span></div>
         <div class="feed" id="feed"></div>
       </div>
 
       <div>
-        <div class="panel" style="margin-bottom:18px">
+        <div class="panel" style="margin-bottom:20px">
           <div class="panelhead">Audit log</div>
-          <div class="kv"><div class="k">Chain</div><div class="v" id="chainState">-</div></div>
-          <div class="kv"><div class="k">Records</div><div class="v" id="chainCount">-</div></div>
-          <div class="kv"><div class="k">Alert delivery</div><div class="v" id="webhookState">-</div></div>
+          <div class="kv"><div class="k">Chain</div><div class="v" id="chainState">&ndash;</div></div>
+          <div class="kv"><div class="k">Records</div><div class="v" id="chainCount">&ndash;</div></div>
+          <div class="kv"><div class="k">Alert delivery</div><div class="v" id="webhookState">&ndash;</div></div>
+          <div class="kv"><div class="k">Last updated</div><div class="v" id="updated">&ndash;</div></div>
         </div>
         <div class="panel">
           <div class="panelhead">What is being attempted</div>
@@ -177,9 +224,10 @@
     </div>
 
     <div class="foot">
-      A shared token, not an identity. Every alert here is attributable to a
-      transaction but not to the person reading it, so a real deployment puts
-      this behind the company IdP before anyone relies on it.
+      One shared account, so an alert here is attributable to a transaction but
+      not yet to a person. Before anyone relies on this in production it belongs
+      behind the company identity provider, which is what turns "someone signed
+      in" into "this person acted on it".
     </div>
   </div>
 </div>
@@ -189,28 +237,28 @@ const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
   {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 
-// sessionStorage, not localStorage: an operations token should not outlive the
-// tab it was typed into.
-const TOKEN_KEY = "parchi.console.token";
-let token = sessionStorage.getItem(TOKEN_KEY) || "";
+// sessionStorage, not localStorage: an operations session should not outlive
+// the tab it was opened in.
+const KEY = "parchi.console.session";
+let session = sessionStorage.getItem(KEY) || "";
 let timer = null;
 
-async function call(path){
-  const r = await fetch(path, {headers: {"X-Parchi-Console-Token": token}});
+async function call(path, options){
+  const opts = Object.assign({headers: {}}, options || {});
+  opts.headers["X-Parchi-Console-Session"] = session;
+  const r = await fetch(path, opts);
   if(r.status === 401) throw new Error("unauthorised");
-  if(r.status === 503) throw new Error(
-    "the console is not enabled on this server. Set PARCHI_CONSOLE_TOKEN and restart.");
+  if(r.status === 503) throw new Error((await r.json()).detail);
+  if(r.status === 429) throw new Error((await r.json()).detail);
   if(!r.ok) throw new Error("HTTP " + r.status);
   return r.json();
 }
 
-function severityRank(s){ return s === "critical" ? 0 : s === "high" ? 1 : 2; }
-
 function renderFeed(alerts){
   const feed = $("#feed");
   if(!alerts.length){
-    feed.innerHTML = '<div class="empty">Nothing raised. Refused purchases, a tampered '
-      + 'audit log and automatic refunds all land here.</div>';
+    feed.innerHTML = '<div class="empty">Nothing refused yet. Blocked purchases, '
+      + 'a tampered audit log and automatic refunds all arrive here.</div>';
     return;
   }
   feed.innerHTML = alerts.map(a => {
@@ -226,20 +274,21 @@ function renderFeed(alerts){
       + '<div class="meta">' + esc(a.id)
       +   (a.txn_id ? ' &middot; txn ' + esc(a.txn_id) : '')
       +   ' &middot; sent to ' + esc((a.delivered || []).join(", ") || "nowhere")
-      + '</div>'
-      + '</div>';
+      + '</div></div>';
   }).join("");
 }
+
+const CRITICAL_KINDS = new Set(["mandate_forgery","payee_substitution",
+  "agent_impersonation","prompt_injection","ledger_tampered","probing",
+  "discount_abuse","price_manipulation","console_lockout"]);
 
 function renderBars(byKind){
   const entries = Object.entries(byKind).sort((a, b) => b[1] - a[1]);
   if(!entries.length){ $("#bars").innerHTML = '<div class="empty">nothing yet</div>'; return; }
   const max = Math.max(...entries.map(e => e[1]));
-  const critical = new Set(["mandate_forgery","payee_substitution","agent_impersonation",
-                            "prompt_injection","ledger_tampered","probing","discount_abuse",
-                            "price_manipulation"]);
   $("#bars").innerHTML = entries.map(([kind, n]) => {
-    const cls = critical.has(kind) ? "critical" : (kind === "expired_mandate" ? "" : "high");
+    const cls = CRITICAL_KINDS.has(kind) ? "critical"
+              : (kind === "expired_mandate" ? "" : "high");
     return '<div class="bar"><div class="n" title="' + esc(kind) + '">' + esc(kind) + '</div>'
       + '<div class="t"><div class="f ' + cls + '" style="width:'
       + Math.round(n / max * 100) + '%"></div></div>'
@@ -253,33 +302,31 @@ async function refresh(){
     renderFeed(d.alerts);
     renderBars(d.counts.by_kind);
 
-    $("#sCrit").textContent = d.counts.by_severity.critical;
-    $("#sCrit").className = "v" + (d.counts.by_severity.critical ? " critical" : " ok");
-    $("#sCritSub").textContent = d.counts.by_severity.critical
-      ? "needs a person" : "nothing needing a person";
+    const crit = d.counts.by_severity.critical;
+    $("#sCrit").textContent = crit;
+    $("#sCrit").className = "v" + (crit ? " bad" : " good");
+    $("#sCritSub").textContent = crit ? "waiting on a human" : "nothing outstanding";
     $("#sHigh").textContent = d.counts.by_severity.high;
     $("#sAuth").textContent = d.authorizations;
 
     const intact = d.ledger.intact;
     $("#sChain").textContent = intact ? "intact" : "BROKEN";
-    $("#sChain").className = "v" + (intact ? " ok" : " critical");
+    $("#sChain").className = "v" + (intact ? " good" : " bad");
     $("#sChainSub").textContent = d.ledger.records + " records";
     $("#chainState").textContent = d.ledger.detail;
     $("#chainState").className = "v" + (intact ? " good" : " bad");
     $("#chainCount").textContent = d.ledger.records;
     $("#webhookState").textContent = d.webhook_configured
-      ? "support console + webhook" : "support console only";
-    $("#providerBadge").textContent = "intent: " + d.intent_provider;
+      ? "console + webhook" : "console only";
+    $("#providerChip").textContent = "intent: " + d.intent_provider;
     $("#feedMeta").textContent = d.counts.total + " shown";
-
-    $("#liveDot").className = "dot";
-    $("#liveText").textContent = "updated " + new Date(d.server_time).toLocaleTimeString();
+    $("#updated").textContent = new Date(d.server_time).toLocaleTimeString();
+    $("#who").textContent = d.operator;
   } catch(e){
-    if(e.message === "unauthorised"){ signOut("that token was not accepted"); return; }
-    // A console that silently stops updating is worse than one that says so:
-    // "no alerts" and "not talking to the server" look identical otherwise.
-    $("#liveDot").className = "dot stale";
-    $("#liveText").textContent = "not updating: " + e.message;
+    if(e.message === "unauthorised"){ signOut("Session expired. Sign in again."); return; }
+    // Say so. "Nothing refused yet" and "not talking to the server" must not
+    // look the same on a page someone is trusting to tell them about fraud.
+    $("#updated").textContent = "not updating: " + e.message;
   }
 }
 
@@ -293,37 +340,48 @@ function signIn(){
 
 function signOut(message){
   clearInterval(timer);
-  token = "";
-  sessionStorage.removeItem(TOKEN_KEY);
+  if(session) fetch("/api/console/logout", {method:"POST",
+    headers:{"X-Parchi-Console-Session": session}}).catch(() => {});
+  session = "";
+  sessionStorage.removeItem(KEY);
   $("#app").hidden = true;
   $("#gate").hidden = false;
   $("#gateerr").textContent = message || "";
-  $("#token").value = "";
-  $("#token").focus();
+  $("#password").value = "";
+  $("#email").focus();
 }
 
 $("#gateform").addEventListener("submit", async (e) => {
   e.preventDefault();
-  token = $("#token").value.trim();
-  if(!token) return;
+  const btn = $("#signin");
+  btn.disabled = true;
   $("#gateerr").textContent = "";
   try {
-    await call("/api/console/ping");
-    sessionStorage.setItem(TOKEN_KEY, token);
+    const r = await fetch("/api/console/login", {
+      method: "POST", headers: {"content-type": "application/json"},
+      body: JSON.stringify({email: $("#email").value, password: $("#password").value})
+    });
+    const body = await r.json();
+    if(!r.ok) throw new Error(body.detail || ("HTTP " + r.status));
+    session = body.session;
+    sessionStorage.setItem(KEY, session);
     signIn();
   } catch(err){
-    token = "";
-    $("#gateerr").textContent = err.message === "unauthorised"
-      ? "That token was not accepted." : err.message;
+    $("#gateerr").textContent = err.message;
+    $("#password").value = "";
+  } finally {
+    btn.disabled = false;
   }
 });
 
 $("#signout").addEventListener("click", () => signOut(""));
 
-// A token already in this tab means straight in, but it is still checked before
-// the shell is shown, so a revoked token does not leave a stale console open.
-if(token){
-  call("/api/console/ping").then(signIn).catch(() => signOut(""));
+// A session already in this tab still gets checked before the shell is shown,
+// so a revoked or expired one does not leave a stale console open.
+if(session){
+  call("/api/console/feed").then(signIn).catch(() => signOut(""));
+} else {
+  $("#email").focus();
 }
 </script>
 </body>

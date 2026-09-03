@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from demo import server
 from parchi.mandate import Cart, CartLine, new_mandate, sign
+from parchi.operators import OperatorDirectory, hash_password
 from parchi.razorpay import RazorpayClient, RazorpayOrder
 
 client = TestClient(server.app)
@@ -508,7 +509,9 @@ def test_the_console_is_off_rather_than_open_when_unconfigured(monkeypatch):
     """An internal fraud console that ships world-readable by default is worse
     than no console: it hands an attacker the map of which of their attempts
     were noticed."""
+    # Either credential enables the console, so "off" has to mean neither.
     monkeypatch.setattr(server, "CONSOLE_TOKEN", "")
+    monkeypatch.setattr(server, "operators", OperatorDirectory())
     r = client.get("/api/console/feed")
     assert r.status_code == 503
     assert "not enabled" in r.json()["detail"]
@@ -541,13 +544,14 @@ def test_the_console_page_loads_without_a_token_but_carries_no_data():
     r = client.get("/console")
     assert r.status_code == 200
     body = r.text
-    assert "operations console" in body.lower()
+    assert "parchi" in body.lower() and "operations" in body.lower()
+    assert "sign in" in body.lower()          # it is a login, not a landing page
     # No alert *content* baked into the page. "ledger_tampered" appears there as
     # a styling constant, so asserting on the kind name would fail for the wrong
     # reason. An alert id is data, and can only appear if data leaked in.
     assert "alt_" not in body
     assert "Audit log has been altered" not in body
-    assert "X-Parchi-Console-Token" in body      # it fetches with the header
+    assert "X-Parchi-Console-Session" in body    # it fetches with the header
 
 
 def test_the_feed_summarises_what_is_being_attempted(monkeypatch):
@@ -577,3 +581,65 @@ def test_opening_the_console_verifies_the_audit_log(monkeypatch):
                    headers={"X-Parchi-Console-Token": "tok"}).json()
     assert d["ledger"]["intact"] is False
     assert any(a["kind"] == "ledger_tampered" for a in d["alerts"])
+
+
+def test_signing_in_with_the_configured_account_opens_the_feed(monkeypatch):
+    monkeypatch.setattr(server, "operators", OperatorDirectory(
+        email="ops@example.com", password_hash=hash_password("correct-horse")))
+    server.console_sessions.reset()
+
+    r = client.post("/api/console/login",
+                    json={"email": "ops@example.com", "password": "correct-horse"})
+    assert r.status_code == 200
+    session = r.json()["session"]
+
+    feed = client.get("/api/console/feed",
+                      headers={"X-Parchi-Console-Session": session})
+    assert feed.status_code == 200
+    assert feed.json()["operator"] == "ops@example.com"
+
+
+def test_a_wrong_password_says_nothing_about_which_half_was_wrong(monkeypatch):
+    """Different messages for "no such account" and "wrong password" is how an
+    attacker learns which addresses exist."""
+    monkeypatch.setattr(server, "operators", OperatorDirectory(
+        email="ops@example.com", password_hash=hash_password("correct-horse")))
+    bad_password = client.post("/api/console/login",
+                               json={"email": "ops@example.com", "password": "no"})
+    bad_email = client.post("/api/console/login",
+                            json={"email": "nobody@example.com",
+                                  "password": "correct-horse"})
+    assert bad_password.status_code == bad_email.status_code == 401
+    assert bad_password.json()["detail"] == bad_email.json()["detail"]
+
+
+def test_signing_out_kills_the_session(monkeypatch):
+    monkeypatch.setattr(server, "operators", OperatorDirectory(
+        email="ops@example.com", password_hash=hash_password("correct-horse")))
+    server.console_sessions.reset()
+    session = client.post("/api/console/login",
+                          json={"email": "ops@example.com",
+                                "password": "correct-horse"}).json()["session"]
+    client.post("/api/console/logout",
+                headers={"X-Parchi-Console-Session": session})
+    assert client.get("/api/console/feed",
+                      headers={"X-Parchi-Console-Session": session}).status_code == 401
+
+
+def test_repeated_failures_lock_the_account_and_raise_an_alert(monkeypatch):
+    """Someone grinding the console password is worth waking a person for."""
+    monkeypatch.setattr(server, "operators", OperatorDirectory(
+        email="ops@example.com", password_hash=hash_password("correct-horse")))
+    for _ in range(5):
+        client.post("/api/console/login",
+                    json={"email": "ops@example.com", "password": "wrong"})
+    locked = client.post("/api/console/login",
+                         json={"email": "ops@example.com", "password": "wrong"})
+    assert locked.status_code == 429
+
+    # Even the right password waits out the lock.
+    still = client.post("/api/console/login",
+                        json={"email": "ops@example.com", "password": "correct-horse"})
+    assert still.status_code == 429
+    assert any(a["kind"] == "console_lockout"
+               for a in client.get("/api/alerts").json()["alerts"])

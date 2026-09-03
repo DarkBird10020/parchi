@@ -341,7 +341,8 @@
    server. The bell is that somewhere. */
 .bell{position:relative; border:1px solid var(--rule); background:var(--card);
       border-radius:3px; width:34px; height:30px; cursor:pointer; padding:0;
-      color:var(--ink-2); font-size:15px; line-height:1}
+      color:var(--ink-2); display:inline-grid; place-items:center}
+.bellicon{display:block}
 .bell:hover{border-color:var(--ink-4); color:var(--ink)}
 .bell[aria-expanded="true"]{border-color:var(--ink); color:var(--ink)}
 .bell .count{position:absolute; top:-7px; right:-7px; min-width:17px; height:17px;
@@ -388,7 +389,14 @@
     <div style="position:relative">
       <button class="bell" id="bell" aria-expanded="false" aria-controls="tray"
               aria-label="Notification history" title="Notification history">
-        &#9788;<span class="count" id="bellCount" hidden>0</span>
+        <svg class="bellicon" viewBox="0 0 24 24" width="16" height="16"
+             fill="none" stroke="currentColor" stroke-width="1.7"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"
+             focusable="false">
+          <path d="M18 8.5a6 6 0 1 0-12 0c0 5-2 6.5-2 6.5h16s-2-1.5-2-6.5" />
+          <path d="M13.7 19a2 2 0 0 1-3.4 0" />
+        </svg>
+        <span class="count" id="bellCount" hidden>0</span>
       </button>
       <div class="tray" id="tray" hidden role="region" aria-label="Notification history">
         <div class="trayhead">

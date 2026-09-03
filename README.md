@@ -335,6 +335,38 @@ the part that matters, which is that degradation never produced an `ALLOW`.
 
 These figures are reported as measured, not promoted as production guarantees.
 
+### How long it takes, at the percentile that matters
+
+An average is the wrong statistic in front of a payment. A checkpoint that
+answers in 200ms on average and nine seconds at p99 times out on one purchase
+in a hundred, and here a timeout means a customer sent to a human.
+
+```bash
+python eval/latency.py
+```
+
+The two paths are different products and are reported separately, because a
+cart refused by a rule never reaches the model:
+
+| Path | p50 | p95 | p99 | Over the 4s budget |
+|:--- |:--- |:--- |:--- |:--- |
+| Refused by a rule (800 calls) | 0.1ms | **0.2ms** | 0.2ms | n/a |
+| Reaches the model (40 calls) | 2.3s | **6.1s** | 7.3s | **10%** |
+
+Two things worth saying about that second row rather than hiding it.
+
+**6.1 seconds at p95 is slow for a payment**, and it is the endpoint rather
+than the design: this is a shared inference service on a day it was answering
+in ~2s at the median. The architecture's answer to that is structural, not
+hopeful. Only a cart that has already passed all twelve deterministic checks
+ever pays it, which in the published 1,000-row run was 300 carts of 1,000, and
+the 700 refused by arithmetic were settled in a fifth of a millisecond.
+
+**A call over budget is not an error.** It degrades to `STEP_UP` and the cart
+goes to a human. In the published run 22 of 1,000 calls did that; on the slower
+day above it was 4 of 40. Not one degraded call in either has ever produced an
+`ALLOW`, which is the property the third verdict exists to guarantee.
+
 ### When the model dies
 
 ```bash

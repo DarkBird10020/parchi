@@ -193,6 +193,9 @@ def _guard_degraded_run(rows: list[dict], pub: Ed25519PublicKey,
     print(f"intent check live: {v.provider}")
 
 
+DEFAULT_OUT = os.path.join(HERE, "results.json")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=DATA)
@@ -211,7 +214,13 @@ def main() -> None:
                          "cost of a real-model run before paying for 1,000 of them")
     ap.add_argument("--per-case", type=int, default=0,
                     help="score the first N rows of every case type")
-    ap.add_argument("--out", default=os.path.join(HERE, "results.json"))
+    ap.add_argument("--out", default=DEFAULT_OUT)
+    ap.add_argument("--ledger", default=None,
+                    help="where this run writes its ledger. A full run defaults "
+                         "to eval/ledger.jsonl, which the next full run "
+                         "overwrites - so a run whose numbers are published "
+                         "somewhere should name its own file and be quoted "
+                         "next to it")
     ap.add_argument("--gate", action="store_true",
                     help="exit non-zero if the results regress (used by CI)")
     args = ap.parse_args()
@@ -297,8 +306,17 @@ def main() -> None:
     if provider not in ("heuristic", "off"):
         _guard_degraded_run(rows, pub, provider, resolved_model)
 
-    ledger_name = "ledger.jsonl" if not sampled else f"ledger_{sample_label}_{provider}.jsonl"
-    ledger_path = os.path.join(HERE, ledger_name)
+    # The ledger is evidence for these metrics, so it has to come from this
+    # run. It used to always be eval/ledger.jsonl for a full batch, which meant
+    # publishing a model run involved remembering to copy the file out before
+    # the next run overwrote it. Nobody remembered: the ledger published beside
+    # the model table ended 5,550 seconds before that table's run started.
+    if args.ledger:
+        ledger_path = os.path.abspath(args.ledger)
+    else:
+        ledger_name = ("ledger.jsonl" if not sampled
+                       else f"ledger_{sample_label}_{provider}.jsonl")
+        ledger_path = os.path.join(HERE, ledger_name)
     preds_parchi, run_parchi = run_engine(rows, pub, True, provider, ledger_path,
                                           resolved_model, args.timeout, warmup_rows, agents)
 
@@ -326,7 +344,13 @@ def main() -> None:
         json.dump(results, f, indent=2)
 
     table = markdown(results)
-    if not sampled:
+    # results.md is the canonical scoreboard, the one CI regenerates and the
+    # README quotes. Only the run that also writes the canonical results.json
+    # gets to rewrite it: a side run pointed at its own --out was overwriting
+    # the published table with numbers from a different provider, leaving the
+    # two files describing different runs.
+    canonical = os.path.abspath(args.out) == os.path.abspath(DEFAULT_OUT)
+    if not sampled and canonical:
         with open(os.path.join(HERE, "results.md"), "w", encoding="utf-8") as f:
             f.write(f"# Results ({len(rows)} synthetic agent transactions)\n\n"
                     f"Intent provider: `{provider}`\n\n{table}\n")

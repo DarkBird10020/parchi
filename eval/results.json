@@ -144,7 +144,7 @@
         "step_up_predicted": 40
       },
       "run": {
-        "seconds": 0.71,
+        "seconds": 0.62,
         "degraded_rows": 0,
         "blocked_by": {
           "amount_cap": 80,
@@ -200,5 +200,5 @@
     "detail": "chain intact across 1000 records",
     "records": 1000
   },
-  "generated_at": 1788421297
+  "generated_at": 1788449053
 }

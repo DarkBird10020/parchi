@@ -175,19 +175,48 @@ under the cap. No rule can see either, which is why the model call is there at a
 ### The full model run
 
 Same 1,000-row dataset, one call per cart through the OpenAI-compatible backend
-([`eval/results_model_full.json`](eval/results_model_full.json), ledger in
-[`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)). Future result
-files record resolved model and timeout so a run can be attributed exactly.
+against `z-ai/glm-4.7-flash` with the production 4s timeout, 2,254 seconds of
+wall clock ([`eval/results_model_full.json`](eval/results_model_full.json),
+ledger in [`eval/ledger_model_full.jsonl`](eval/ledger_model_full.jsonl)). The
+results file records its own ledger path, resolved model and timeout, so the
+run is attributable and the chain beside it is the chain it produced.
 
 | Approach | Catches violations | Blocks good customers | Degraded | Cost of the mistakes |
 |:--- |:--- |:--- |:--- |:--- |
 | Rules only | 235/280 (83.9%) | 0 | n/a | ₹2,19,908 paid out on violations |
-| **Parchi** *(rules + one model call)* | **272/280 (97.1%)** | 12 | 0 | ₹45,058 on missed violations + **₹92,114** of false blocks |
+| **Parchi** *(rules + one model call)* | **278/280 (99.3%)** | 22 | 22 | ₹14,390 on missed violations + **₹1,45,132** of false blocks |
 
-The full run had no degraded calls, but model judgement still produced eight
-missed violations and twelve false blocks. 38/40 high-value legitimate carts
-reached the human-confirmation path. These figures are reported as measured,
-not promoted as production guarantees.
+Read straight off the ledger, per case:
+
+| Case | n | What happened |
+|:--- |:--- |:--- |
+| `in_scope` (good customers) | 680 | 638 allowed, 20 wrongly blocked, **22 sent to a human** |
+| `high_value_legit` | 40 | 38 routed to a human, 2 wrongly blocked |
+| `quantity_inflation` | 20 | 18 caught, **2 missed** |
+| every other violation case | 260 | 260/260 caught |
+
+**The 22 degraded rows are the number to look at.** Those are carts whose model
+call did not come back inside the 4s budget. Not one of them was auto-approved:
+every single one became `STEP_UP` and went to a human. That is the failure mode
+this design exists for, measured rather than asserted, and it is why the
+degraded column sits in the table instead of in a footnote.
+
+#### The same code scored differently on two different days
+
+An earlier full run of this identical dataset and code measured **272/280
+(97.1%) with 12 false blocks and 0 degraded rows**. This one measured 278/280
+with 22 false blocks and 22 degraded rows. Nothing in the repo changed between
+them. What changed was the endpoint: a shared inference service answering in
+~2s against a 4s budget will, on a slower day, miss that budget on a couple of
+percent of calls.
+
+That is worth stating plainly rather than quietly quoting the better run. A
+latency budget in front of a payment is a *safety* parameter, not a performance
+one: shrink it and more carts degrade, and the honest consequence is more
+customers sent to a human, not more violations let through. Both runs agree on
+the part that matters, which is that degradation never produced an `ALLOW`.
+
+These figures are reported as measured, not promoted as production guarantees.
 
 ### When the model dies
 

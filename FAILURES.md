@@ -583,6 +583,54 @@ for. The AI component was the one place that rule had not been applied.
 
 ---
 
+### 17. The evidence published beside the numbers was from a different run
+
+**Where.** The README's full-model table, and the two files it links as proof
+of that table.
+
+**What was wrong.** `eval/results_model_full.json` held the metrics.
+`eval/ledger_model_full.jsonl` was linked beside it as the hash-chained record
+those metrics came from. They were produced by different runs, hours apart. The
+ledger's last record was written 5,550 seconds before the results run started,
+and the results file's own `ledger` block named `eval/ledger.jsonl`, a third
+file, which by then had been overwritten by a later heuristic run.
+
+Every individual artefact was internally valid. The chain verified. The metrics
+were real. The claim that one was evidence for the other was not.
+
+**Why.** A full batch always wrote `eval/ledger.jsonl`, whatever provider it
+ran. Publishing a model run therefore meant remembering to copy the ledger out
+before the next run clobbered it. Nobody remembered, and nothing checked,
+because the file that would have caught it is the file that was wrong.
+
+**Found by** deriving the timestamps rather than reading the filenames. The
+ledger records carry `ts`, the results file carries `generated_at` and the run
+duration; three numbers that should nest and did not.
+
+**Changed.** `eval/evaluate.py` takes `--ledger`, so a run whose numbers get
+published names its own ledger and writes it in the same pass. The results file
+records that path, the resolved model and the timeout. Correctness now comes
+from how the run is invoked rather than from someone remembering a `cp`
+afterwards.
+
+Then the run was done again, once, on a quiet tree, and the README was
+rewritten around what it actually said. The new numbers are not uniformly
+better: recall went from 97.1% to 99.3%, false blocks went from 12 to 22, and
+22 rows degraded where the previous run had none. The two runs are the same
+code and the same 1,000 rows on two different days, which makes the endpoint's
+latency the only variable, and makes the spread itself a finding worth
+publishing: a 4s budget in front of a payment is a safety parameter, and the
+cost of missing it is customers routed to a human rather than violations let
+through. All 22 degraded rows became `STEP_UP`. None became `ALLOW`.
+
+**Cost.** Two hours of wall clock across the two runs. What it nearly cost is
+the same thing entry 16 nearly cost: this project's argument is that evidence
+should be checkable, and the headline table was linking evidence that did not
+belong to it. A reviewer who checked the timestamps would have found that
+before I did.
+
+---
+
 ### Resolved (was "Still unsolved")
 
 The headline number is now a model number. The full 1,000-row run against

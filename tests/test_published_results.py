@@ -330,16 +330,26 @@ def test_the_pitch_deck_quotes_the_run_it_is_presenting():
     model = _load("eval/results_model_full.json")["approaches"]["parchi"]
     caught = model["metrics"]["tp"]
     total = caught + model["metrics"]["fn"]
-    assert f"{caught}/{total} caught" in deck, (
-        f"the deck does not quote the model run's own {caught}/{total}")
-    assert f"{model['metrics']['fp']} false" in deck, "false-block count is stale"
-    assert f"{model['run']['degraded_rows']} calls that missed" in deck, (
-        "degraded-call count is stale")
+    assert f">{model['run']['degraded_rows']}</span> of those calls missed" in deck, (
+        "the degraded-call count is stale")
 
-    rules = _load("eval/results.json")["approaches"]
-    parchi = rules["parchi"]["metrics"]
-    assert f'{parchi["tp"]} / {parchi["tp"] + parchi["fn"]}' in deck, (
-        "the reproducible run's headline figure is stale in the deck")
+    # The deck's hero row must be the model run, not the offline one. Checking
+    # only that "280 / 280" appears would pass on the block-everything row, so
+    # the assertion is on the hero row itself.
+    import re
+
+    hero = re.search(r'<tr class="hero">.*?</tr>', deck, re.S)
+    assert hero, "the scoreboard slide has no hero row"
+    assert f'{caught} / {total}' in hero.group(0), (
+        f"the deck's hero row does not show the model run's {caught} / {total}")
+    assert str(model["metrics"]["fp"]) in hero.group(0), (
+        "the deck's hero row does not show the model run's false blocks")
+
+    redteam = _load("eval/redteam_results.json")["results"]
+    tp = sum(1 for r in redteam if r["should_refuse"] and r["refused"])
+    attacks = sum(1 for r in redteam if r["should_refuse"])
+    assert f"{round(tp / attacks * 100)}% caught" in deck, (
+        f"the deck does not quote the red-team figure {round(tp / attacks * 100)}%")
 
 
 def test_the_pitch_deck_agrees_with_the_adjudicator_story():

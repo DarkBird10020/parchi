@@ -89,6 +89,13 @@ customers left alone**. Both runs are in `FAILURES.md` entry 16. This is the
 single result I would most want a risk reviewer to look at, because the failure
 was invisible to every test that existed at the time.
 
+Entry 19 is the companion to it. Fixing the way the spending cap was reaching
+the model improved recall to 100%, precision to 95.2% and false blocks from 22
+to 14, and made the **total cost of the mistakes 22% worse**, because the false
+blocks that remain land on expensive carts. Nine metrics said ship it. The one
+that counts what a merchant loses said no, so it ships off, behind a flag, with
+both runs published.
+
 ### The operations console
 
 `/console` is the staff side: a real sign-in (scrypt, per-account lockout, and
@@ -112,20 +119,42 @@ Live-mode keys are rejected by design; the demo runs on test credentials.
 
 ## Results
 
-1,000 labelled agent purchases, false positives reported in rupees. Full
-tables, provider stamps and reproduction commands in the README. The headline
-row is stamped with the provider that produced it, and the model-run table is
-published next to the heuristic one rather than blended into it.
+1,000 labelled agent purchases, false positives reported in rupees because a
+blocked genuine customer is money the merchant lost. **The headline row is the
+run against a real model**, not the offline stand-in: 278/280 caught, 22 good
+customers wrongly blocked, ₹1,59,521. The no-key reproduction scores 280/280
+with zero false blocks, and it is published further down rather than at the top,
+because a perfect score on data I generated against rules I wrote is a closed
+loop and reads like one.
 
-The full model run is published with its own hash-chained ledger, written in
-the same pass, and a test asserts that the ledger's records fall inside the
-window of the run that reports them. That test exists because they once did
-not: the previously published ledger was from a different run hours earlier,
-which is `FAILURES.md` entry 17.
+**Which half produced which number** matters more than the total, and
+`eval/attribute.py` derives it from the published ledger:
 
-The held-out set (`python eval/heldout.py`) is the number that answers "is this
-overfit to its own generator": hand-written cases, every one handled as
-specified, 0 false blocks, in CI next to the 48-pattern attack suite.
+| Settled by | Violations caught | Good customers blocked | Precision |
+|:--- |:--- |:--- |:--- |
+| A deterministic rule | 235 | 0 | 100% |
+| The one model call | 43 | 22 | 66.2% |
+
+The model earns its place and is also the entire source of the error. Eighteen
+of those 22 false blocks reason about price, which led to entry 19 below.
+
+**Three answers to "is this overfit to your own generator?"**, weakest to
+strongest. The hand-written held-out set (`eval/heldout.py`, in CI) uses cases
+chosen to beat the generator's blind spots. The 48-pattern attack suite is
+adversarial by construction. And `eval/redteam.py` gives a model the product
+with no rule, no check name and no threshold, and asks it for attacks:
+**40 distinct cases, 76% caught**, with the seven that got through named rather
+than summarised. That last number is the only one here I did not mark myself.
+
+**Latency**, since this sits in front of a payment (`eval/latency.py`): a
+refusal a rule settles is 0.2ms at p95; a cart that reaches the model is 6.1s at
+p95, which is slow and is the endpoint rather than the design. Only carts that
+pass all twelve checks pay it, 300 of 1,000 in the published run, and an
+over-budget call degrades to `STEP_UP` rather than to `ALLOW`.
+
+Every published run carries its own hash-chained ledger written in the same
+pass, and a test asserts the ledger's records fall inside the window of the run
+reporting them. That test exists because they once did not, which is entry 17.
 
 ## What is deliberately not claimed
 

@@ -207,12 +207,15 @@
       <tr><th>Approach</th><th>Violations caught</th><th>Good customers blocked</th><th>Cost of the mistakes</th></tr>
       <tr><td>Allow everything</td><td class="num">0 / 280</td><td class="num">0</td><td class="num bad">₹17,83,157</td></tr>
       <tr><td>Block all agent traffic</td><td class="num">280 / 280</td><td class="num bad">720</td><td class="num bad">₹33,73,331</td></tr>
-      <tr><td>Rules only</td><td class="num">235 / 280</td><td class="num">0</td><td class="num bad">₹2,19,908</td></tr>
-      <tr class="hero"><td>Parchi <span class="mono">(rules + one model call)</span></td><td class="num good">280 / 280</td><td class="num good">0</td><td class="num good">₹0</td></tr>
+      <tr><td>Rules only <span class="mono">(the day-2 baseline)</span></td><td class="num">235 / 280</td><td class="num">0</td><td class="num bad">₹2,19,908</td></tr>
+      <tr class="hero"><td>Parchi <span class="mono">(rules + a real model call)</span></td><td class="num good">278 / 280</td><td class="num bad">22</td><td class="num">₹1,59,521</td></tr>
     </table>
-    <p data-step="4" style="margin-top:22px">And published next to it, the run against a <strong>real model</strong>:
-      <span class="mono">278/280 caught, 22 false blocks, 22 calls that missed the 4s budget</span>.
-      Every one of those 22 went to a human. <strong>Not one was auto-approved.</strong></p>
+    <p data-step="4" style="margin-top:20px">That last row is the run <strong>against a real model</strong>, not an
+      offline stand-in. <span class="mono">22</span> of those calls missed the four-second budget, and every one went to a
+      human. <strong>Not one was auto-approved.</strong></p>
+    <p data-step="5" style="margin-top:14px">And against attacks written by a model that had
+      <strong>never seen my rules</strong>: <span class="mono">76% caught</span>. That is the number
+      I would defend.</p>
   </section>
 
   <!-- 6 ................................................................. -->

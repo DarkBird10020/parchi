@@ -122,8 +122,8 @@ Slide numbers refer to `docs/pitch-deck.html`.
 >
 > "So I built the missing check. Every agent purchase carries a signed
 > permission slip: the cap, the categories, the expiry, and the agent's own
-> playback of what it thinks you asked for. Parchi checks the cart against that
-> slip **before** the money moves."
+> playback of what it thinks you asked for. Parchi checks the cart against it
+> **before** the money moves."
 
 ---
 
@@ -167,13 +167,13 @@ cut if you are running long, and the script fits 5:00 without it.**
 *Click the `swarm` scenario.*
 
 > "Allowed, and that is correct. Three registered agents each presented a valid
-> slip for the same account, and every rule passes for each of them. But one
-> wallet with many faces is a credential farm."
+> slip for the same account, and every rule passes. But one wallet with many
+> faces is a credential farm."
 
 *Switch to the console tab. Refresh.*
 
-> "This is the operations console. Staff only. The adjudicator read the pattern
-> and called it a credential farm, ninety percent confident."
+> "The operations console. Staff only. The adjudicator read the pattern and
+> called it a credential farm, ninety percent confident."
 >
 > "The account is blocked for ten minutes, and a human can release it right
 > here. That release is logged with their name on it."
@@ -186,14 +186,23 @@ Switch back to the deck, slide 5.
 
 **Slide 5, the scoreboard (about 35 seconds).**
 
-> "A thousand labelled agent purchases. I count false positives in rupees, not
-> percentages, because a blocked real customer is money the merchant lost."
+> "A thousand labelled agent purchases. I count false positives in rupees,
+> because a blocked real customer is money the merchant lost."
 >
 > "Block everything, you lose thirty-three lakh of good revenue. Allow
 > everything, you pay out seventeen lakh. Rules alone leak two lakh."
 >
-> "And next to it I publish the real-model run. Twenty-two calls missed the
-> four-second budget. Every one went to a human. **Not one was auto-approved.**"
+> "Parchi catches two hundred and seventy-eight of two hundred and eighty, and
+> wrongly blocks twenty-two."
+
+*Point at the last row. This is the sentence that buys you credibility:*
+
+> "That row is the run against a **real model**, not an offline stand-in. I
+> could show you a hundred percent, but it would be my data and my rules
+> marking their own homework."
+
+> "So I had a model that has never seen my code write the attacks instead.
+> Against those, **seventy-six percent**. That is the number I would defend."
 
 **Slide 6, what broke (about 45 seconds). This is the beat that wins it. Slow down.**
 
@@ -204,13 +213,13 @@ Switch back to the deck, slide 5.
 
 *Pause.*
 
-> "Then I noticed something. Every deterministic check in this repo is scored
-> against a thousand rows. The one component that can refuse a **real customer**
-> was scored against nothing."
+> "Then I noticed: every deterministic check here is scored against a thousand
+> rows. The one component that can refuse a **real customer** was scored against
+> nothing."
 >
 > "So I wrote the test that should have existed first. Twelve situations, half
-> of them ordinary customers who happen to trip a counter. An office manager
-> buying for a team. Someone retrying on bad wifi."
+> of them ordinary customers who trip a counter. An office manager buying for a
+> team. Someone retrying on bad wifi."
 >
 > "It convicted fifteen out of eighteen innocent customers."
 
@@ -228,12 +237,11 @@ Switch back to the deck, slide 5.
 > deterministic checks first: plain code, no AI in that file, stopping at the
 > first failure."
 >
-> "Only if every rule passes does one model call run, and it answers one
-> question: does this cart match what the human asked for."
+> "Only if every rule passes does one model call run, answering one question:
+> does this cart match what the human asked for."
 >
 > "The spending cap is kept **out** of that prompt, so the model never
-> re-decides arithmetic. It did that once and blocked a four thousand rupee cart
-> for exceeding five thousand."
+> re-decides arithmetic."
 >
 > "And three verdicts, not two: allow, block, and ask the human. If the model
 > call dies, the answer is ask. Never allow."
@@ -259,15 +267,15 @@ Switch back to the deck, slide 5.
 
 ### Timing, measured rather than hoped
 
-The spoken lines are **707 words** without the optional ledger beat, 730
+The spoken lines are **725 words** without the optional ledger beat, 748
 with it. Add about 20 seconds of clicking and waiting in the demo, where you
 should not be talking anyway.
 
 | Your pace | Without the ledger beat | With it |
 |:--- |:--- |:--- |
-| 145 wpm, unhurried | 5:13 | 5:22 |
-| 155 wpm, normal for a technical talk | 4:54 | 5:03 |
-| 165 wpm, brisk | 4:37 | 4:45 |
+| 145 wpm, unhurried | 5:20 | 5:30 |
+| 155 wpm, normal for a technical talk | **5:01** | 5:10 |
+| 165 wpm, brisk | 4:44 | 4:52 |
 
 If you speak slowly, buy time in this order: drop the ledger beat (about 10
 seconds), then slide 7's cap anecdote (about 15).
@@ -292,15 +300,23 @@ a tight 5:00 without it.
 
 ## Panel prep: the questions, answered
 
-1. **"How do you know your 100% isn't overfitting your generator?"**
-   → The 1,000-row batch is generator-tuned. The *held-out* set
-   (`eval/heldout.py`, hand-written, in CI) is not: it includes categories,
-   playback phrasings and one-paise edges the generator never produces. Every
-   case handled as specified, 0 false blocks. Plus a 48-pattern attack suite.
+1. **"How do you know this isn't overfitting your own generator?"**
+   → It was, and that is why the headline is no longer the perfect score. Three
+   answers, weakest to strongest. The hand-written held-out set
+   (`eval/heldout.py`, in CI) has cases chosen to beat the generator's blind
+   spots. The 48-pattern attack suite is adversarial by construction. And
+   `eval/redteam.py` gives a model the product with **no rule, no check name
+   and no threshold**, and asks it for attacks: 40 distinct cases, **76%
+   caught**, and the seven that got through are named in the README. That last
+   one is the only number here I did not mark myself.
 
-2. **"What's the false-positive cost model?"** → False positives are counted in
-   rupees, not percentages, because a blocked real customer is lost money.
-   ₹33 lakh under block-all, ₹0 under the reproducible run.
+2. **"What's the false-positive cost model, and what's the model's own rate?"**
+   → False positives are counted in rupees because a blocked real customer is
+   lost money: ₹33 lakh under block-all, ₹1,59,521 under Parchi. And the split
+   matters more than the total. The rules block 235 violations and **zero** good
+   customers. The model call catches the 43 no rule can see and produces **all
+   22** false blocks, so its own precision is 66%. `eval/attribute.py` derives
+   that from the published ledger.
 
 3. **"Your model run got worse than your earlier one. Why publish it?"**
    → Because it's the run whose ledger I can hand you. The earlier one's
@@ -313,9 +329,12 @@ a tight 5:00 without it.
    retry policy. The one place I do allow a retry is the adjudicator, which
    gates a cooldown rather than a payment.
 
-5. **"What happens when the model dies?"** → Nothing auto-approves. It fails to
-   STEP_UP, ask the human. Demo it with `--provider off`. In the published
-   model run, all 22 degraded calls became STEP_UP.
+5. **"What happens when the model dies, and how slow is it?"** → Nothing
+   auto-approves: it fails to STEP_UP and asks the human, and all 22 degraded
+   calls in the published run did exactly that. On speed, `eval/latency.py`:
+   a refusal a rule settles is **0.2ms at p95**; a cart that reaches the model
+   is **6.1s at p95**, which is slow and is the endpoint rather than the design.
+   Only carts that pass all twelve checks pay it, 300 of 1,000 in that run.
 
 6. **"Why is the cap kept out of the prompt?"** → Because the model re-decided
    it and got it wrong, blocking a ₹4,077 cart as "exceeds ₹5,000". FAILURES

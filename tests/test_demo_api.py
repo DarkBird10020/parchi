@@ -505,6 +505,75 @@ def test_the_history_survives_a_page_the_browser_never_had_open():
 # the operations console
 # --------------------------------------------------------------------------
 
+def test_alerts_survive_a_restart(tmp_path, monkeypatch):
+    """The alert file is the store of record; memory is only its tail.
+
+    A console that empties on restart tells the operator "nothing happened",
+    which is the one reading a fraud log must never produce.
+    """
+    alerts_path = tmp_path / "alerts.jsonl"
+    alerts_path.write_text(
+        json.dumps({"id": "alt_old1", "ts": 1, "kind": "probing",
+                    "severity": "critical", "summary": "s", "detail": "d",
+                    "txn_id": None, "acked": None, "delivered": []}) + "\n"
+        # A torn final line: the previous process died mid-write. Skipped.
+        + '{"id": "alt_tor', encoding="utf-8")
+    monkeypatch.setattr(server, "ALERTS_PATH", str(alerts_path))
+    monkeypatch.setattr(server, "_alerts_loaded", False)
+    monkeypatch.setattr(server, "alerts", [])
+
+    body = client.get("/api/alerts").json()
+    assert [a["id"] for a in body["alerts"]] == ["alt_old1"]
+    assert body["open_critical"] == 1
+
+    # A second reload must not double-append what is already in memory.
+    body_again = client.get("/api/alerts").json()
+    assert [a["id"] for a in body_again["alerts"]] == ["alt_old1"]
+
+
+def test_an_acknowledged_critical_stops_being_open(monkeypatch):
+    """'Needs a person' has to be a queue a human can drain, not a counter."""
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    client.post("/api/authorize", json={"scenario": "payee_substitution"})
+    before = client.get("/api/console/feed",
+                        headers={"X-Parchi-Console-Token": "tok"}).json()
+    critical = next(a for a in before["alerts"] if a["severity"] == "critical")
+    assert before["open_critical"] >= 1
+
+    r = client.post("/api/console/ack",
+                    headers={"X-Parchi-Console-Token": "tok"},
+                    json={"ids": [critical["id"]]})
+    assert r.status_code == 200
+    assert r.json()["acked"] == [critical["id"]]
+
+    after = client.get("/api/console/feed",
+                       headers={"X-Parchi-Console-Token": "tok"}).json()
+    acked = next(a for a in after["alerts"] if a["id"] == critical["id"])
+    assert acked["acked"]["by"] == "machine-token"
+    assert after["open_critical"] == before["open_critical"] - 1
+    # Attribution, not deletion: the alert stays in the feed.
+    assert any(a["id"] == critical["id"] for a in after["alerts"])
+
+
+def test_ack_requires_the_console_and_ignores_unknown_ids(monkeypatch):
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    assert client.post("/api/console/ack", json={"ids": ["alt_nope"]}).status_code == 401
+    r = client.post("/api/console/ack",
+                    headers={"X-Parchi-Console-Token": "tok"},
+                    json={"ids": ["alt_nope"]})
+    assert r.status_code == 200 and r.json()["acked"] == []
+
+
+def test_reset_clears_the_alert_file_so_a_demo_starts_clean(tmp_path, monkeypatch):
+    alerts_path = tmp_path / "alerts.jsonl"
+    alerts_path.write_text("", encoding="utf-8")
+    monkeypatch.setattr(server, "ALERTS_PATH", str(alerts_path))
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+    assert alerts_path.exists() and alerts_path.read_text(encoding="utf-8").strip()
+    client.post("/api/reset")
+    assert not alerts_path.exists()
+
+
 def test_the_console_is_off_rather_than_open_when_unconfigured(monkeypatch):
     """An internal fraud console that ships world-readable by default is worse
     than no console: it hands an attacker the map of which of their attempts
@@ -643,3 +712,135 @@ def test_repeated_failures_lock_the_account_and_raise_an_alert(monkeypatch):
     assert still.status_code == 429
     assert any(a["kind"] == "console_lockout"
                for a in client.get("/api/alerts").json()["alerts"])
+
+
+# --------------------------------------------------------------------------
+# alert attribution: who was being mischievous
+# --------------------------------------------------------------------------
+
+def test_every_alert_names_the_account_it_is_about():
+    """A history answers "who was doing this?", not just "what happened?"."""
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+    alerts = client.get("/api/alerts").json()["alerts"]
+    named = [a for a in alerts if a.get("actor")]
+    assert named, "alerts carry no actor at all"
+    assert all(a["actor"] == "usr_demo" for a in named), named
+    assert all(a["actor_name"] == "usr_demo" for a in named), (
+        "the guest payer has no account, so its id is the display name")
+
+
+def test_a_signed_in_users_alerts_name_the_user(monkeypatch):
+    """The mischief-maker is named by their email, not a ghost payer id."""
+    session = client.post("/api/user/login", json={
+        "email": server.DEMO_USER_EMAIL,
+        "password": server.DEMO_USER_PASSWORD}).json()["session"]
+    try:
+        client.post("/api/authorize", json={"scenario": "over_cap"},
+                    headers={"X-Parchi-User-Session": session})
+        alerts = client.get("/api/alerts").json()["alerts"]
+        mine = [a for a in alerts if a.get("actor", "").startswith("usr_")
+                and a["actor"] != "usr_demo"]
+        assert mine, "no alert carried the signed-in user as its actor"
+        assert all(a["actor_name"] == server.DEMO_USER_EMAIL for a in mine), mine
+    finally:
+        server.cooldowns.reset()
+
+
+def test_agent_actors_are_labelled_as_agents():
+    client.post("/api/authorize", json={"scenario": "allow"})
+    client.post("/api/authorize", json={"scenario": "replay"})
+    alerts = client.get("/api/alerts").json()["alerts"]
+    replayed = [a for a in alerts if a["kind"] == "replay_attack"]
+    assert replayed and replayed[-1]["actor"] == "usr_demo"
+    assert replayed[-1]["actor_name"] == "usr_demo"
+
+
+def test_releasing_one_cooled_account_does_not_free_the_others(monkeypatch):
+    """The button is drawn next to one account, so it must free one account.
+
+    An untargeted release frees everyone from a control that looks per-account,
+    which during an incident is the opposite of what the operator meant. This
+    test exists because the first version of the endpoint did exactly that.
+    """
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    auth = {"X-Parchi-Console-Token": "tok"}
+    server.cooldowns.reset()
+    server.cooldowns.trigger("usr_one", "agent swarm detected")
+    server.cooldowns.trigger("usr_two", "agent swarm detected")
+    try:
+        r = client.post("/api/console/release", headers=auth,
+                        json={"account": "usr_one"})
+        assert r.status_code == 200 and r.json()["released"] == ["usr_one"]
+
+        assert not server.cooldowns.check("usr_one").active
+        assert server.cooldowns.check("usr_two").active, (
+            "releasing one account released another account's block")
+    finally:
+        server.cooldowns.reset()
+
+
+def test_a_release_is_named_by_the_operator_who_did_it(monkeypatch):
+    """Lifting a fraud block is the most consequential thing here. It is logged."""
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    auth = {"X-Parchi-Console-Token": "tok"}
+    server.cooldowns.reset()
+    server.cooldowns.trigger("usr_three", "agent swarm detected")
+    try:
+        client.post("/api/console/release", headers=auth,
+                    json={"account": "usr_three"})
+        alerts = client.get("/api/alerts", params={"limit": 50}).json()["alerts"]
+        rec = next(a for a in alerts if a["kind"] == "cooldown_released")
+        assert rec["actor"] == "usr_three"
+        assert "machine-token" in rec["detail"]
+    finally:
+        server.cooldowns.reset()
+
+
+def test_a_release_with_no_account_is_refused_rather_than_meaning_all(monkeypatch):
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    auth = {"X-Parchi-Console-Token": "tok"}
+    server.cooldowns.reset()
+    server.cooldowns.trigger("usr_four", "agent swarm detected")
+    try:
+        r = client.post("/api/console/release", headers=auth, json={"account": ""})
+        assert r.status_code == 400
+        assert server.cooldowns.check("usr_four").active
+    finally:
+        server.cooldowns.reset()
+
+
+def test_releasing_an_account_that_is_not_held_is_not_an_error(monkeypatch):
+    """The feed can move between the render and the click."""
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    r = client.post("/api/console/release",
+                    headers={"X-Parchi-Console-Token": "tok"},
+                    json={"account": "usr_never_held"})
+    assert r.status_code == 200 and r.json()["released"] == []
+
+
+def test_release_requires_the_console():
+    server.cooldowns.reset()
+    server.cooldowns.trigger("usr_five", "agent swarm detected")
+    try:
+        assert client.post("/api/console/release",
+                           json={"account": "usr_five"}).status_code == 401
+        assert server.cooldowns.check("usr_five").active
+    finally:
+        server.cooldowns.reset()
+
+
+def test_every_scenario_on_the_page_has_an_expected_verdict_in_ci():
+    """A scenario CI does not check is a scenario nothing checks.
+
+    The CI job asserts this too, but only after a six-minute queue. Failing
+    here costs a fifth of a second, and this test was written because a new
+    scenario did in fact reach the tree with no CI entry behind it.
+    """
+    import re
+    from pathlib import Path
+
+    workflow = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
+    covered = set(re.findall(r'"(\w+)":\s*"(?:ALLOW|BLOCK|STEP_UP)"',
+                             workflow.read_text(encoding="utf-8")))
+    missing = set(server.SCENARIOS) - covered
+    assert not missing, f"scenarios with no expected verdict in CI: {sorted(missing)}"

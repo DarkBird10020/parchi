@@ -44,7 +44,15 @@
   .band{background:var(--card-2); border-bottom:1px solid var(--rule);
         font-family:var(--mono); font-size:10.5px; letter-spacing:.16em;
         text-transform:uppercase; color:var(--ink-3)}
-  .band .wrap{padding-top:9px; padding-bottom:9px}
+  .band .wrap{padding-top:9px; padding-bottom:9px; display:flex;
+              align-items:center; gap:8px; flex-wrap:wrap}
+  .band .r{margin-left:auto; color:var(--ink-3)}
+  .ctbtn{appearance:none; font-family:var(--mono); font-size:10px;
+         letter-spacing:.14em; text-transform:uppercase; cursor:pointer;
+         border:1px solid var(--rule-2); background:transparent;
+         color:var(--ink-3); padding:3px 10px; border-radius:3px}
+  .ctbtn:hover{border-color:var(--ink); color:var(--ink)}
+  .ctbtn.off{border-color:var(--stepup); color:var(--stepup)}
 
   .btn{appearance:none; font-family:var(--mono); border:1px solid var(--ink);
        background:transparent; color:var(--ink); padding:11px 20px; border-radius:3px;
@@ -115,6 +123,19 @@
   .det{margin-top:6px; font-family:var(--mono); font-size:11.5px; color:var(--ink-2);
        word-break:break-word; white-space:pre-wrap; line-height:1.6}
   .meta{margin-top:7px; font-family:var(--mono); font-size:10.5px; color:var(--ink-4)}
+  .row.acked{background:transparent; opacity:.62}
+  .row.acked .sev.critical{color:var(--ink-3); border-color:var(--rule-2)}
+  .ackwrap{margin-top:9px; display:flex; align-items:center; gap:10px}
+  .ackbtn{appearance:none; font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+          text-transform:uppercase; padding:5px 12px; border-radius:2px; cursor:pointer;
+          border:1px solid var(--ink); background:transparent; color:var(--ink)}
+  .ackbtn:hover{background:var(--ink); color:var(--paper)}
+  .ackbtn:disabled{opacity:.5; cursor:default}
+  .ackwho{font-family:var(--mono); font-size:10.5px; color:var(--allow)}
+  .actor{display:inline-block; margin-top:6px; font-family:var(--mono); font-size:10px;
+         letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3);
+         border:1px solid var(--rule-2); border-radius:3px; padding:3px 8px;
+         background:var(--card-2)}
   .empty{padding:48px 20px; text-align:center; color:var(--ink-3)}
 
   .kv{padding:14px 20px; border-bottom:1px solid var(--rule-3)}
@@ -174,7 +195,12 @@
     </div>
   </nav>
   <div class="band"><div class="wrap" id="bandText">
-    Internal &middot; every refusal on this checkpoint
+    <span>Internal &middot; every refusal on this checkpoint</span>
+    <button class="ctbtn" id="btnGate" title="Off: detector alerts continue, no model calls, no automatic cooldowns">AI gate: ON</button>
+    <button class="ctbtn" id="btnSound" title="Chime + desktop notification on new criticals">Sound: ON</button>
+    <button class="ctbtn" id="btnNag" title="Re-chime every 2 minutes while criticals are unacknowledged">Re-nag: OFF</button>
+    <button class="ctbtn" id="btnClear" title="Empty the alert feed; the ledger and detector state stay">Clear all</button>
+    <span class="r" id="updated" style="margin-left:auto">&ndash;</span>
   </div></div>
 
   <div class="wrap">
@@ -210,11 +236,14 @@
 
       <div>
         <div class="panel" style="margin-bottom:20px">
+          <div class="panelhead">Cooling down <span class="r" id="cooldownMeta"></span></div>
+          <div id="cooldowns"><div class="empty" style="padding:24px 20px">No accounts blocked.</div></div>
+        </div>
+        <div class="panel" style="margin-bottom:20px">
           <div class="panelhead">Audit log</div>
           <div class="kv"><div class="k">Chain</div><div class="v" id="chainState">&ndash;</div></div>
           <div class="kv"><div class="k">Records</div><div class="v" id="chainCount">&ndash;</div></div>
           <div class="kv"><div class="k">Alert delivery</div><div class="v" id="webhookState">&ndash;</div></div>
-          <div class="kv"><div class="k">Last updated</div><div class="v" id="updated">&ndash;</div></div>
         </div>
         <div class="panel">
           <div class="panelhead">What is being attempted</div>
@@ -263,14 +292,29 @@ function renderFeed(alerts){
   }
   feed.innerHTML = alerts.map(a => {
     const when = new Date(a.ts).toLocaleString();
-    return '<div class="row ' + esc(a.severity) + '">'
+    const isCrit = a.severity === "critical";
+    const ack = a.acked || null;
+    const ackHtml = !isCrit ? ""
+      : (ack
+        ? '<div class="ackwrap"><span class="ackwho">&#10003; acknowledged '
+          + esc(ack.by) + ' &middot; ' + esc(new Date(ack.ts).toLocaleTimeString())
+          + '</span></div>'
+        : '<div class="ackwrap"><button class="ackbtn" data-ack="' + esc(a.id)
+          + '">Mark seen</button></div>');
+    // Who the pattern is about, named the way a handover needs it: the
+    // account email when the payer has one, the agent id otherwise.
+    const who = a.actor_name
+      ? '<span class="actor">&#128100; ' + esc(a.actor_name) + '</span>' : "";
+    return '<div class="row ' + esc(a.severity) + (ack ? " acked" : "") + '">'
       + '<div class="top">'
       +   '<span class="sev ' + esc(a.severity) + '">' + esc(a.severity) + '</span>'
       +   '<span class="kind">' + esc(a.kind) + '</span>'
       +   '<span class="when">' + esc(when) + '</span>'
       + '</div>'
       + '<div class="sum">' + esc(a.summary) + '</div>'
+      + who
       + '<div class="det">' + esc(a.detail) + '</div>'
+      + ackHtml
       + '<div class="meta">' + esc(a.id)
       +   (a.txn_id ? ' &middot; txn ' + esc(a.txn_id) : '')
       +   ' &middot; sent to ' + esc((a.delivered || []).join(", ") || "nowhere")
@@ -278,9 +322,153 @@ function renderFeed(alerts){
   }).join("");
 }
 
+// Acknowledging is attribution, not deletion: the row stays, dimmed, with who
+// saw it and when, so a handover can prove a person looked.
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-ack]");
+  if(!btn || !session) return;
+  btn.disabled = true;
+  try {
+    await call("/api/console/ack", {method:"POST",
+      headers:{"content-type":"application/json"},
+      body: JSON.stringify({ids:[btn.dataset.ack]})});
+    refresh();
+  } catch(err){
+    btn.disabled = false;
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  }
+});
+
+// A number the operator is not looking at is not a notification. New criticals
+// speak once each, nag every two minutes while unacknowledged, and leave the
+// tab title carrying the count, because a muted console at 3am is a lamp
+// switched off on purpose.
+let knownCriticalIds = new Set();
+let firstFeed = true;
+let lastTitle = document.title;
+let nagTimer = null;
+let audioCtx = null;
+// The operator's ear, not the server's: sound and the two-minute re-nag are
+// this browser's choices, remembered across sign-ins. Re-nag defaults to off
+// - one chime per new critical already carries the news; repeating it every
+// two minutes is an open-plan-office feature, not a control.
+let soundOn = sessionStorage.getItem("parchi.console.sound") !== "off";
+let nagOn = sessionStorage.getItem("parchi.console.nag") === "on";
+// Server state for the AI gate, mirrored onto the band button from the feed.
+let lastGate = true;
+
+function chime(){
+  if(!soundOn) return;   // muted is a choice, honoured before the oscillator
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    if(audioCtx.state === "suspended") audioCtx.resume();
+    const t = audioCtx.currentTime;
+    [[880, 0], [1318.5, .18]].forEach(([f, at]) => {
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = "sine"; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + at);
+      g.gain.exponentialRampToValueAtTime(0.22, t + at + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + at + 0.55);
+      o.connect(g).connect(audioCtx.destination);
+      o.start(t + at); o.stop(t + at + 0.6);
+    });
+  } catch(e){ /* no audio is a silent console, not a broken one */ }
+}
+
+function spoken(summary, detail){
+  if(!soundOn) return;
+  if(!("Notification" in window)) return;
+  if(Notification.permission === "granted"){
+    new Notification("Parchi: " + summary, {body: detail, tag: "parchi-critical"});
+  } else if(Notification.permission !== "denied"){
+    Notification.requestPermission();
+  }
+}
+
+function nag(){
+  if(!nagOn){ clearInterval(nagTimer); nagTimer = null; return; }
+  const open = document.querySelectorAll("[data-ack]").length;
+  if(!open){ clearInterval(nagTimer); nagTimer = null; return; }
+  chime();
+  spoken(open + " critical alert(s) still unacknowledged",
+         "Open the operations console and mark them seen.");
+}
+
+function ensureNag(){
+  if(nagOn && !nagTimer) nagTimer = setInterval(nag, 120000);
+}
+
+function announceNewCriticals(alerts){
+  const fresh = alerts.filter(a => a.severity === "critical" && !a.acked);
+  if(firstFeed){
+    // On load, existing criticals are the situation being walked into, not
+    // breaking news: they count, but they do not sound.
+    fresh.forEach(a => knownCriticalIds.add(a.id));
+    firstFeed = false;
+    if(fresh.length){
+      document.title = "(" + fresh.length + ") " + lastTitle;
+      ensureNag();
+    }
+    return;
+  }
+  const isNew = fresh.filter(a => !knownCriticalIds.has(a.id));
+  fresh.forEach(a => knownCriticalIds.add(a.id));
+  if(isNew.length){
+    chime();
+    spoken(isNew[0].summary, isNew[0].detail);
+    document.title = "(" + fresh.length + ") " + lastTitle;
+    ensureNag();
+  } else if(!fresh.length){
+    document.title = lastTitle;
+    if(nagTimer){ clearInterval(nagTimer); nagTimer = null; }
+  }
+}
+
 const CRITICAL_KINDS = new Set(["mandate_forgery","payee_substitution",
   "agent_impersonation","prompt_injection","ledger_tampered","probing",
-  "discount_abuse","price_manipulation","console_lockout"]);
+  "discount_abuse","price_manipulation","console_lockout","coupon_farming",
+  "ai_attack","account_cooled","cooldown_block"]);
+const QUIET_KINDS = new Set(["expired_mandate", "ai_cleared"]);
+
+// Accounts the AI adjudicator has cooled down, each with the human release.
+// An automatic block nobody can undo is a lockout waiting for 3am.
+function renderCooldowns(cooldowns){
+  const box = $("#cooldowns");
+  const keys = Object.keys(cooldowns);
+  $("#cooldownMeta").textContent = keys.length ? keys.length + " blocked" : "";
+  if(!keys.length){
+    box.innerHTML = '<div class="empty" style="padding:24px 20px">No accounts blocked.</div>';
+    return;
+  }
+  box.innerHTML = keys.map(k => {
+    const c = cooldowns[k];
+    const mins = Math.ceil(c.seconds_left / 60);
+    const ai = c.assessment ? esc(c.assessment.reason) + ' <span class="ackwho">['
+      + esc(c.assessment.model) + ' · ' + Math.round(c.assessment.confidence * 100)
+      + '% confident]</span>' : esc(c.reason);
+    return '<div class="row critical"><div class="top">'
+      + '<span class="sev critical">cooled</span><span class="kind">' + esc(k) + '</span>'
+      + '<span class="when">' + mins + ' min left</span></div>'
+      + '<div class="sum">' + ai + '</div>'
+      + '<div class="ackwrap"><button class="ackbtn" data-release="' + esc(k)
+      + '">Release early</button></div></div>';
+  }).join("");
+}
+
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-release]");
+  if(!btn || !session) return;
+  btn.disabled = true;
+  try {
+    await call("/api/console/release", {method:"POST",
+      headers:{"content-type":"application/json"},
+      body: JSON.stringify({account: btn.dataset.release})});
+    refresh();
+  } catch(err){
+    btn.disabled = false;
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  }
+});
 
 function renderBars(byKind){
   const entries = Object.entries(byKind).sort((a, b) => b[1] - a[1]);
@@ -288,7 +476,7 @@ function renderBars(byKind){
   const max = Math.max(...entries.map(e => e[1]));
   $("#bars").innerHTML = entries.map(([kind, n]) => {
     const cls = CRITICAL_KINDS.has(kind) ? "critical"
-              : (kind === "expired_mandate" ? "" : "high");
+              : (QUIET_KINDS.has(kind) ? "" : "high");
     return '<div class="bar"><div class="n" title="' + esc(kind) + '">' + esc(kind) + '</div>'
       + '<div class="t"><div class="f ' + cls + '" style="width:'
       + Math.round(n / max * 100) + '%"></div></div>'
@@ -296,16 +484,90 @@ function renderBars(byKind){
   }).join("");
 }
 
+function renderGate(){
+  const b = $("#btnGate");
+  b.textContent = "AI gate: " + (lastGate ? "ON" : "OFF");
+  b.classList.toggle("off", !lastGate);
+}
+
+function renderSound(){
+  $("#btnSound").textContent = "Sound: " + (soundOn ? "ON" : "OFF");
+  $("#btnSound").classList.toggle("off", !soundOn);
+}
+
+function renderNag(){
+  $("#btnNag").textContent = "Re-nag: " + (nagOn ? "ON" : "OFF");
+  $("#btnNag").classList.toggle("off", !nagOn);
+}
+
+function renderToggles(){ renderGate(); renderSound(); renderNag(); }
+
+$("#btnGate").addEventListener("click", async () => {
+  try {
+    const r = await call("/api/console/ai-gate", {method:"POST",
+      headers:{"content-type":"application/json"},
+      body: JSON.stringify({enabled: !lastGate})});
+    lastGate = !!r.enabled;
+    renderGate();
+  } catch(err){
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  }
+});
+
+$("#btnSound").addEventListener("click", () => {
+  soundOn = !soundOn;
+  sessionStorage.setItem("parchi.console.sound", soundOn ? "on" : "off");
+  renderSound();
+});
+
+$("#btnNag").addEventListener("click", () => {
+  nagOn = !nagOn;
+  sessionStorage.setItem("parchi.console.nag", nagOn ? "on" : "off");
+  renderNag();
+  if(!nagOn && nagTimer){ clearInterval(nagTimer); nagTimer = null; }
+});
+
+$("#btnClear").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if(btn.dataset.armed !== "1"){
+    btn.dataset.armed = "1";
+    btn.textContent = "Really clear?";
+    setTimeout(() => {
+      if(btn.isConnected){ btn.dataset.armed = ""; btn.textContent = "Clear all"; }
+    }, 4000);
+    return;
+  }
+  btn.dataset.armed = "";
+  btn.disabled = true;
+  try {
+    await call("/api/console/clear-alerts", {method:"POST"});
+    knownCriticalIds.clear();
+    firstFeed = true;
+    refresh();
+  } catch(err){
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "Clear all";
+  }
+});
+
 async function refresh(){
   try {
     const d = await call("/api/console/feed");
     renderFeed(d.alerts);
     renderBars(d.counts.by_kind);
 
-    const crit = d.counts.by_severity.critical;
+    announceNewCriticals(d.alerts);
+
+    // Unacknowledged criticals, not all criticals. A number that never moves
+    // trains whoever reads it to stop reading it.
+    const crit = d.open_critical !== undefined
+      ? d.open_critical
+      : d.counts.by_severity.critical;
     $("#sCrit").textContent = crit;
     $("#sCrit").className = "v" + (crit ? " bad" : " good");
-    $("#sCritSub").textContent = crit ? "waiting on a human" : "nothing outstanding";
+    $("#sCritSub").textContent = crit ? "waiting on a human" : "all clear";
     $("#sHigh").textContent = d.counts.by_severity.high;
     $("#sAuth").textContent = d.authorizations;
 
@@ -319,6 +581,11 @@ async function refresh(){
     $("#webhookState").textContent = d.webhook_configured
       ? "console + webhook" : "console only";
     $("#providerChip").textContent = "intent: " + d.intent_provider;
+    // The AI gate is server state; mirror it so the button never lies, even
+    // if another operator (or another tab) flipped it.
+    lastGate = !!d.ai_gate_enabled;
+    renderGate();
+    renderCooldowns(d.cooldowns || {});
     $("#feedMeta").textContent = d.counts.total + " shown";
     $("#updated").textContent = new Date(d.server_time).toLocaleTimeString();
     $("#who").textContent = d.operator;
@@ -333,6 +600,7 @@ async function refresh(){
 function signIn(){
   $("#gate").hidden = true;
   $("#app").hidden = false;
+  renderToggles();
   refresh();
   clearInterval(timer);
   timer = setInterval(refresh, 5000);
@@ -340,6 +608,8 @@ function signIn(){
 
 function signOut(message){
   clearInterval(timer);
+  if(nagTimer){ clearInterval(nagTimer); nagTimer = null; }
+  document.title = lastTitle;
   if(session) fetch("/api/console/logout", {method:"POST",
     headers:{"X-Parchi-Console-Session": session}}).catch(() => {});
   session = "";

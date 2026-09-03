@@ -127,6 +127,13 @@ jobs:
               "payee_substitution": "BLOCK", "replay": "BLOCK",
               "quantity_inflation": "BLOCK", "agent_substitution": "BLOCK",
               "wrong_category": "BLOCK",
+              "coupon_burst": "BLOCK", "coupon_drift": "BLOCK",
+              "burst": "ALLOW",
+              # The swarm attempt itself passes every deterministic check -
+              # that is the whole point of it. The alert fires on top, and the
+              # cooldown lands on the NEXT attempt, so this one is ALLOW with
+              # or without a model behind the adjudicator.
+              "swarm": "ALLOW",
           }
           # Every scenario the page offers must be covered here: one added to the
           # server and forgotten here is a scenario nothing checks.

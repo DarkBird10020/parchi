@@ -207,7 +207,8 @@ any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLO
 python demo/server.py     # → http://127.0.0.1:8000
 ```
 
-Eleven scenarios, each a real `POST /api/authorize`. Every check and its reason is
+Fourteen scenarios, each a real `POST /api/authorize` (the swarm one ends with
+the account itself blocked for ten minutes): Every check and its reason is
 shown, the evidence pack is the JSON a merchant would send to an issuer, and the
 ledger pane verifies its own hash chain, with a **Tamper** button, because showing
 it beats claiming it.
@@ -311,6 +312,113 @@ about exactly one of them. Every refusal is classified before it is reported:
 | Agent bought something unasked for | `intent_mismatch` | high |
 | Refund required at settlement | `settlement_mismatch` | high |
 | Slip outside its validity window | `expired_mandate` | info |
+| One actor attempting purchase after purchase | `purchase_burst` | high |
+| One coupon code attempted over and over | `coupon_hot` | high |
+| One coupon code spread across many mandates | `coupon_farming` | critical |
+| Same code claimed at different values across attempts | `discount_drift` | high |
+| AI adjudicator confirms the pattern is an attack | `ai_attack` | critical |
+| Attack confirmed: account blocked for 10 minutes | `account_cooled` | critical |
+| An attempt from a cooling account | `cooldown_block` | high |
+
+The last four come from a second layer: the per-cart checks judge one cart
+against one mandate, and `parchi/behavior.py` asks what the *sequence* of
+attempts says. The burst watcher counts **all** attempts from one actor,
+allowed ones included, because a bot enumerating stock or testing stolen
+instruments wants volume and gets it one correct verdict at a time. The coupon
+watcher counts how a code is used across mandates, refused attempts included.
+And drift is a cross-record view no single cart can produce: a code worth
+Rs 100 claimed at Rs 100 is verified true, the same code claimed at Rs 900 in
+another cart is verified false, and both records are individually correct.
+What nobody notices is that one code paying two different amounts is an
+enumeration pattern against the coupon rail. Every threshold fires once per
+incident, not once per attempt, and none of these detectors can change a
+verdict: they name what happened, on the same enforcement/detection split as
+everything above.
+
+### Who is buying: shopper accounts
+
+Every slip used to be signed by one shared payer, `usr_demo`, a ghost. Now the
+main page has **Sign in / Create account**: an email and a password create a
+real account with its own Ed25519 keypair, held in memory only (the store keeps
+the public key in `demo/users.jsonl`; the private half is regenerated on
+restart, the same trade the demo's own keys already make). Whatever you do
+while signed in, scenario buttons or the chat, the mandate on screen carries
+your payer id and is signed by *your* key, spent against your cap. The
+adjudicator's cooldown keys on the signed-in account too: a block lands on the
+account that was attacked, not on a ghost everyone shares. Password hashing is
+the same scrypt the console login uses; sessions are opaque tokens with a
+seven-day TTL.
+
+### The AI escalation, and the ten-minute block
+
+Two of those shapes are never accidents, so they go one step further: attempts
+rebuilt after a refusal, and **one payer presented by many agent credentials**:
+a swarm. Agents are registered credentials, so many faces on one wallet is
+not a household sharing a login; it is a hijacked payer key being worked by a
+farm. For exactly these, the checkpoint asks a model to read the situation:
+cart contents, the human's actual request, the detector evidence and the swarm
+roster. It answers one question a counter cannot: *is this account genuinely
+under attack?*
+
+When the adjudicator says yes at 0.6+ confidence, the account is blocked for
+**10 minutes**: enforced as a deterministic check before anything else runs,
+covering every agent that could present that payer's slips. The console shows
+the block with the AI's stated reason, its model and its confidence, and a
+**Release early** button, because an automatic block nobody can undo is a
+lockout waiting for 3am. If no provider is configured the ratchet fails open
+and the alerts stand on their own. The gate is deliberately *not* in the
+payment path: a wrong opinion costs a cooldown a human releases, never a
+silently refused customer.
+
+#### The adjudicator is scored, because it can lock out a real customer
+
+An AI that decides who gets blocked is a claim, not a feature, until someone
+measures it. `eval/adjudicator.py` is twelve hand-written situations, six real
+attacks and six ordinary customers who happen to trip a counter, each labelled
+independently of what any detector would say:
+
+```bash
+python eval/adjudicator.py
+```
+
+The benign half is the half that matters. A model that convicts everything
+scores perfect recall and is useless, because every false conviction is a
+paying customer told their account is blocked. That is not hypothetical: it is
+what the first version did.
+
+| | attacks caught | customers left alone | false blocks | accuracy |
+|---|---|---|---|---|
+| First prompt | 18/18 | 3/18 | **15** | 58% |
+| Shipped prompt | 18/18 | 16/18 | **2** | **94%** |
+
+*(18 = the 12 cases at 3 runs each, on one model, same evidence.)*
+
+The first prompt listed attack readings and never said what clearing looks
+like, so the model convicted almost everything and scored perfect recall by
+doing it. What fixed it was writing the **cost asymmetry into the prompt**:
+convicting a real customer blocks them for ten minutes, while clearing a real
+attacker costs nothing here, because every deterministic refusal still stands
+and the alert still reaches a human. Two further discriminators came out of the
+same measurement: count *payers* rather than attempts on a coupon (many payers
+on one code is a sale, one payer across many mandates is farming), and check
+what *changed* between repeats (a resubmitted cart is a retry; a cart rebuilt
+after a refusal with only the nonce changed has no innocent version).
+
+The default model is also a measurement rather than a preference. The 5-series
+tier was pinned here first, on the theory that a harder judgement deserves a
+heavier model. It then began answering HTTP 402, and the flagship took 70s per
+call and returned a confidence of `7` on a 0-1 scale. A model that is not
+answering is not adjudicating, so `DEFAULT_GUARD_MODEL` is the one that is
+measured, available and fast. `PARCHI_GUARD_MODEL` pins any other; score it
+with the command above before trusting it.
+
+The operator caps the bill from the console band. **AI gate: ON/OFF** stops the
+adjudicator itself. Detector alerts keep flowing either way (a cheaper
+operation must not be a blinder); reviews and automatic cooldowns stop. An
+account already cooling down is never re-adjudicated, so a ten-attempt swarm
+is one review, not ten. **Clear all** empties the feed, attributed and with the
+ledger untouched. **Sound** and **Re-nag** (default off, since one chime per new
+critical already carries the news) are per-browser choices.
 
 Two of those are worth dwelling on. **`probing`** fires when the same actor is
 refused five times in a minute: every individual verdict was correct and no money
@@ -567,7 +675,12 @@ parchi/
 │   ├── intent_match.py  # the ONE model call: timeout, fallback, injection fencing
 │   ├── ledger.py        # hash-chained audit log + verify_chain()
 │   ├── engine.py        # orchestrates: checks → model → verdict → ledger
-│   └── evidence.py      # dispute evidence pack builder
+│   ├── evidence.py      # dispute evidence pack builder
+│   ├── operators.py     # console accounts: scrypt hashing, session tokens
+│   ├── behavior.py      # sequence detectors: burst, coupon farming, drift
+│   ├── cooldown.py      # the 10-minute account block, with operator release
+│   ├── ai_guard.py      # the adjudicator that decides when a block is earned
+│   └── users.py         # shopper accounts: signup, login, a key of one's own
 ├── data/generate.py     # 1,000 labelled agent purchases, deterministic
 ├── eval/evaluate.py     # precision, recall, false-positive rupee cost, baselines
 ├── tests/

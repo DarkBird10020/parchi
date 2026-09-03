@@ -267,6 +267,35 @@ def _response_format() -> dict[str, Any]:
     }
 
 
+def chat_json_schema(prompt: str, schema: dict[str, Any], keys: tuple[str, ...],
+                     timeout: float, model: str | None = None,
+                     max_tokens: int = 400,
+                     name: str = "verdict") -> dict[str, Any]:
+    """One completion, strict JSON out, shaped by `schema` with exactly `keys`.
+
+    The shared parsing machinery with `chat_json` is the point: the fence
+    stripping, the envelope unwrapping and the json_schema-to-json_object
+    fallback were all paid for once and every model call should inherit them.
+    Type checks stay with the caller, which knows what each field means; this
+    layer only guarantees the exact key set.
+    """
+    if _SUPPORTS_JSON_SCHEMA is False:
+        fmt = {"type": "json_object"}
+    else:
+        fmt = {"type": "json_schema",
+               "json_schema": {"name": name, "strict": True, "schema": schema}}
+    content = _request(prompt, timeout, model, fmt, max_tokens=max_tokens)
+    if not (content or "").strip():
+        # Measured on the TEE GLM tier: the endpoint sometimes answers 200 with
+        # an empty message. That is a transport-grade failure wearing a success
+        # status, and "empty string" must not masquerade as a verdict.
+        raise RuntimeError("model returned an empty message")
+    parsed = _unwrap(json.loads(_strip_fence(content)))
+    if not isinstance(parsed, dict) or set(parsed) != set(keys):
+        raise RuntimeError(f"model returned JSON outside the {name} schema")
+    return parsed
+
+
 def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str, Any]:
     """One completion, JSON object out, no retries.
 
@@ -290,10 +319,8 @@ def chat_json(prompt: str, timeout: float, model: str | None = None) -> dict[str
     this module's whole point, so a rejection falls back to json_object once and
     is remembered for the process.
     """
-    content = _request(prompt, timeout, model, _response_format(), max_tokens=400)
-    parsed = _unwrap(json.loads(_strip_fence(content)))
-    if not isinstance(parsed, dict) or set(parsed) != {"match", "reason"}:
-        raise RuntimeError("model returned JSON outside the match/reason schema")
+    parsed = chat_json_schema(prompt, VERDICT_SCHEMA, ("match", "reason"),
+                              timeout, model, name="intent_verdict")
     if type(parsed["match"]) is not bool:
         raise RuntimeError("model returned a non-boolean match")
     if not isinstance(parsed["reason"], str) or not parsed["reason"].strip():

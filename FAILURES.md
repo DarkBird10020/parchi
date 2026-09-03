@@ -513,6 +513,76 @@ human never mentioned. That trade is still unresolved.
 
 ---
 
+### 16. The AI that decides who gets blocked convicted 15 of 18 innocent customers
+
+**Where.** `parchi/ai_guard.py`, the adjudicator that reads an account's
+behaviour and decides whether the ten-minute cooldown is earned.
+
+**What was wrong.** Nothing, by the standards the rest of this repo was using.
+It was wired up, it returned well-formed verdicts, it convicted the swarm
+scenario at 0.95 confidence, and it had tests. Every deterministic check in this
+project is scored against 1,000 rows and a held-out set. The adjudicator was
+scored against nothing, which is the wrong asymmetry: it is the one component
+whose verdict locks a real customer out of their own account.
+
+**Found by** writing the eval that should have existed first
+([`eval/adjudicator.py`](eval/adjudicator.py)): twelve situations, six attacks
+and six ordinary customers who trip a counter, labelled independently of any
+detector. The first run:
+
+```
+caught       6/6 attacks
+left alone   3/6 ordinary customers
+FALSE BLOCKS 3, each a real customer locked out for 10 minutes
+```
+
+Three runs of each case made it worse, not better: 15 false blocks out of 18
+benign judgements. Five of the six benign cases convicted at least once, and two
+convicted every single time. The office manager buying for a team, the customer
+retrying on a flaky connection, the shopper in a public sale: all blocked.
+
+**Why.** The prompt listed what attacks look like and never said what clearing
+looks like. It opened with "the detectors already fired", then gave six attack
+readings and one thin sentence of exculpatory context. So the model did what the
+prompt actually asked and convicted almost everything. Its 100% recall was not
+skill. A rule that always says yes catches every attack too.
+
+**Changed.** The cost asymmetry is now the first thing in the prompt, stated in
+the terms the model has to weigh: convicting a real customer blocks them for ten
+minutes while they are mid-purchase, and clearing a real attacker costs nothing
+*here*, because every deterministic refusal still stands and the alert still
+reaches a human. Then two discriminators the first prompt never gave it: on a
+coupon, count **payers** rather than attempts (many payers on one code is a
+sale; one payer across many mandates is farming), and on repeats, count what
+**changed** (a resubmitted cart is a retry; a cart rebuilt after a *refusal*
+with only the nonce changed has no innocent version).
+
+Same twelve cases, same model, three runs each:
+
+| | attacks caught | customers left alone | false blocks | accuracy |
+|---|---|---|---|---|
+| Before | 18/18 | 3/18 | 15 | 58% |
+| After | 18/18 | 16/18 | 2 | 94% |
+
+**And the default model was wrong too.** It was pinned to the 5-series tier on
+the theory that a harder judgement deserves a heavier model. Diagnosing the
+retry chain showed the pinned model answering `HTTP 402` and falling through to
+the smaller one on most calls, so the "heavier model" was mostly decorative, and
+the flagship had already been measured at 70s per call returning a confidence of
+`7` on a 0-1 scale. The default is now the model that was actually measured on
+this eval: 12/12 judged, zero false blocks, 32s for the full run against 215s.
+
+**What this cost, and why it is entry 16.** Nothing in production, because none
+of this shipped. What it nearly cost is the thing the whole project argues
+against. Parchi's case is that an agent should not be trusted on the strength of
+looking correct, and the adjudicator was trusted on exactly that: it looked
+right, it was plausible in review, and it convicted a real customer five times
+out of six. The rule the rest of the repo already follows is that a component
+allowed to refuse a human has to be measured against cases it was not written
+for. The AI component was the one place that rule had not been applied.
+
+---
+
 ### Resolved (was "Still unsolved")
 
 The headline number is now a model number. The full 1,000-row run against

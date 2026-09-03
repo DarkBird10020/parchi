@@ -631,6 +631,78 @@ before I did.
 
 ---
 
+### 18. The ten-minute block did not apply to the attack it was written for
+
+**Where.** The escalation gate in `demo/server.py`, and the adjudicator prompt.
+
+**Found by** the operator reading the feature back to me: a coupon claimed at a
+higher value than it is worth should cool the account, and it did not.
+
+**What was wrong.** The gate escalated exactly one shape, the agent swarm.
+`discount_drift` and `coupon_farming` raised alerts and stopped there, so an
+attacker could keep inflating the claimed value of a code, be refused every
+time, and never be blocked. Refusing an attempt and stopping an attacker are
+not the same thing, and the whole point of the cooldown is the difference.
+
+The prompt made it worse than an omission. It already said, in as many words,
+*"a code claimed at DIFFERENT values across attempts has no innocent version:
+it is enumeration of the coupon rail."* The system was telling the model how to
+judge a case it was never going to be shown.
+
+**Also found on the way in:** `rebuilt_attempt` was named in the gate, in the
+docs and in the eval, and no detector has ever emitted it. The condition
+`any(p.kind == "rebuilt_attempt" for p in patterns)` could not be true. So the
+"two shapes are never accidents" the module documented were really one shape
+and a branch that never ran.
+
+**The first fix, and why it was wrong.** I routed both coupon shapes to the
+adjudicator and taught the prompt to weigh them: count payers, read whether the
+code is publicly advertised, convict on more than one claimed value. Then I
+measured it, and it went backwards.
+
+| | attacks caught | customers left alone |
+|---|---|---|
+| Before | 5/6 | 6/6 |
+| With the coupon decision table in the prompt | 4/8 | 6/6 |
+
+It cleared one payer sweeping a code across 28 mandates, on the grounds that
+the code was public. It convicted a genuine sale while its own stated reason
+read *"is a public sale, not a single customer"*, which is the argument for
+clearing. Reordering the rules moved the errors around without removing them.
+
+**Why.** I was handing a model arithmetic, which is entry 10's mistake wearing
+different clothes. Counting distinct payers, and looking a code up in the
+merchant's own book, are not judgement calls. A model asked to execute a
+numbered decision procedure will apply it unevenly, and no wording fixes that
+because the wording was never the problem.
+
+**Changed.** `parchi/behavior.py` gained `coupon_verdict`, which settles the
+countable part and returns `None` when the numbers genuinely cannot read the
+case. More than one claimed value convicts. One payer across many mandates
+convicts. Many payers convict or clear depending on `Coupon.public`, a new flag
+saying whether the merchant advertised the code, because twenty-six payers on
+one code is a Diwali sale or a leak and only the merchant knows which. The
+prompt went back, verbatim, to the wording that measured 18/18 and 16/18.
+
+The result is better than the version I set out to build. Coupon abuse now
+blocks an account with **no model call, no API key and no network**, which
+means it holds in CI and on a fresh clone, and it cannot drift with an
+endpoint's mood. `tests/test_coupon_verdict.py` covers it, and the model eval
+dropped those cases, because scoring a model on decisions it is never shown is
+not a measurement.
+
+**A note on what the eval says now.** With the coupon cases gone it holds eight
+situations, and a single run scored 1/3 on the attack half. Repeating the
+failures four times each showed why that number is not what it looks like: the
+swarm, the only shape the checkpoint actually routes to a model, convicts 4/4;
+card testing is flaky at 3/4; the catalogue sweep, which no detector escalates,
+now clears every time where it convicted in the morning. Same prompt, same
+model name, different day. The full-model run in entry 17 moved for the same
+reason. A number from one run of a shared endpoint is an anecdote, and the
+honest response is to keep the shape that matters on rules.
+
+---
+
 ### Resolved (was "Still unsolved")
 
 The headline number is now a model number. The full 1,000-row run against

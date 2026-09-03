@@ -233,8 +233,8 @@ def test_the_readme_counts_the_behavioural_rows_it_claims():
 
     from parchi import behavior  # noqa: F401  (imported for the kinds below)
     behavioural = ["purchase_burst", "coupon_hot", "coupon_farming",
-                   "discount_drift", "ai_attack", "account_cooled",
-                   "cooldown_block"]
+                   "discount_drift", "ai_attack", "coupon_abuse_confirmed",
+                   "account_cooled", "cooldown_block"]
     tail = rows[-len(behavioural):]
     for kind in behavioural:
         assert any(kind in row for row in tail), (

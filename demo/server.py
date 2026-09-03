@@ -29,7 +29,12 @@ from demo import shopper
 from parchi import openai_provider
 from parchi.agents import AgentRegistry
 from parchi.ai_guard import CONFIDENCE_GATE, assess_attack
-from parchi.behavior import BurstDetector, CouponWatcher, check_patterns
+from parchi.behavior import (
+    BurstDetector,
+    CouponWatcher,
+    check_patterns,
+    coupon_verdict,
+)
 from parchi.checks import CheckResult, NonceStore, run_all
 from parchi.cooldown import COOLDOWN_SECONDS, CooldownStore, detect_swarm
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Decision, Engine
@@ -67,9 +72,12 @@ RESULTS_PATH = os.path.join(ROOT, "eval", "results.json")
 # drift and burst scenarios are measured against. Wired into the engine so
 # check_discount and check_prices verify against something real.
 COUPONS = CouponBook([
+    # SAVE10 is a public campaign: heavy use by many payers is the sale working.
     Coupon("SAVE10", percent_off=10, max_discount_paise=10_000,
-           categories=("footwear",)),
-    Coupon("LOYALTY50", kind="loyalty", flat_paise=5_000),
+           categories=("footwear",), public=True),
+    # A loyalty redemption is issued to one customer, so many payers on it is a
+    # balance being spent by somebody it does not belong to.
+    Coupon("LOYALTY50", kind="loyalty", flat_paise=5_000, public=False),
 ])
 
 
@@ -354,9 +362,32 @@ def check_chain_and_alert() -> dict[str, Any]:
     return {"intact": ok, "detail": msg, "records": n}
 
 
-def adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
-                     txn_id: str) -> None:
-    """Ask the model whether this swarm is really an attack, and act on it.
+# The shapes that earn a review, and the words used when one is upheld.
+# headline and detail describe the pattern; reason is what the cooldown is
+# recorded under, so it reads sensibly on the console's release panel.
+ESCALATIONS: dict[str, tuple[str, str, str]] = {
+    "agent_swarm": (
+        "Agent swarm",
+        "Several distinct agent credentials presented slips for one payer.",
+        "agent swarm detected"),
+    "discount_drift": (
+        "Coupon claimed at different values",
+        "The same discount code was presented at more than one value. A code "
+        "is worth what it is worth; a code that pays two different amounts is "
+        "somebody working out what the coupon rail will accept.",
+        "discount code claimed at different values"),
+    "coupon_farming": (
+        "Coupon spread across many mandates",
+        "One discount code carried by mandate after mandate. A store-wide sale "
+        "is many payers on one code; this shape is one payer spending "
+        "harvested permission slips.",
+        "one discount code spent across many mandates"),
+}
+
+
+def adjudicate(actor: str, payer_id: str, signals: dict[str, Any],
+               txn_id: str, reason: str) -> None:
+    """Ask the model whether this pattern is really an attack, and act on it.
 
     Runs on its own thread. Everything it can do (raise alerts, cool the
     account down) affects the NEXT attempt, never the one that triggered it,
@@ -369,7 +400,7 @@ def adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
     what happened when it was not measured.
     """
     try:
-        _adjudicate_swarm(actor, payer_id, signals, txn_id)
+        _adjudicate(actor, payer_id, signals, txn_id, reason)
     except Exception as exc:
         # Fail open, the same way the adjudicator itself does. This runs on its
         # own thread, so an escaping exception blocks nobody, but it would die
@@ -381,8 +412,9 @@ def adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
         release_adjudication(payer_id)
 
 
-def _adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
-                      txn_id: str) -> None:
+def _adjudicate(actor: str, payer_id: str, signals: dict[str, Any],
+                txn_id: str, reason: str) -> None:
+    shape = str(signals.get("pattern", "pattern")).replace("_", " ")
     assessment = assess_attack(actor, signals, timeout=30.0)
     if assessment is None:
         # Unavailable, out of credit, or malformed. Fail open: the plain
@@ -392,18 +424,18 @@ def _adjudicate_swarm(actor: str, payer_id: str, signals: dict[str, Any],
     if not (assessment.attack and assessment.confidence >= CONFIDENCE_GATE):
         raise_alert(
             "ai_cleared", "info",
-            f"AI adjudicator reviewed the swarm pattern and cleared it "
+            f"AI adjudicator reviewed the {shape} pattern and cleared it "
             f"({assessment.confidence:.0%})",
             f"{assessment.reason} [model {assessment.model}]",
             txn_id=txn_id, actor=payer_id)
         return
     raise_alert(
         "ai_attack", CRITICAL,
-        f"Agent swarm: AI adjudicator confirms attack at {assessment.confidence:.0%}",
+        f"{shape.capitalize()}: AI adjudicator confirms attack at "
+        f"{assessment.confidence:.0%}",
         f"{assessment.reason} [model {assessment.model}]",
         txn_id=txn_id, actor=payer_id)
-    held = cooldowns.trigger(payer_id, "agent swarm detected",
-                             assessment.to_dict())
+    held = cooldowns.trigger(payer_id, reason, assessment.to_dict())
     raise_alert(
         "account_cooled", CRITICAL,
         f"Account '{payer_id}' blocked for {held.seconds_left // 60} minutes",
@@ -459,42 +491,101 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
         raise_alert(p.kind, p.severity, p.summary, p.detail, txn_id=txn_id,
                     actor=mandate.payer_id or "")
 
-    # The escalation gate. Two shapes are never accidents - an attempt rebuilt
-    # after a refusal, and one payer presented by many agent credentials - so
-    # those patterns go to the AI adjudicator, which reads the situation. Only
-    # its verdict at or above the confidence gate pulls the 10-minute cooldown;
-    # an unavailable model fails open, and the alerts still stand on their own.
+    # The escalation gate. Most patterns are worth an alert and nothing more,
+    # because a counter cannot tell a busy customer from a bot. These four are
+    # different: each one is either impossible to explain innocently, or is
+    # exactly the judgement call the adjudicator exists to make. They go to the
+    # model, and only its verdict at or above the confidence gate pulls the
+    # ten-minute cooldown. An unavailable model fails open and the alerts stand.
     swarm = detect_swarm(mandate.payer_id, cart.agent_id or "", swarm_seen)
-    escalation_shape = swarm or any(p.kind == "rebuilt_attempt" for p in patterns)
-    if (escalation_shape and not cooldowns.check(mandate.payer_id).active
+    fired = {p.kind for p in patterns}
+    if swarm:
+        shape = "agent_swarm"
+    else:
+        # Order matters: drift is the sharper finding when both are present,
+        # because a code paying two different amounts has no sale that explains
+        # it, while farming still has to be told apart from a popular coupon.
+        shape = next((k for k in ("discount_drift", "coupon_farming")
+                      if k in fired), None)
+
+    if (shape and not cooldowns.check(mandate.payer_id).active
             and claim_adjudication(mandate.payer_id)):
-        # The pattern is worth naming whatever the gate is set to - turning
-        # the model off must make the operation cheaper, not blind. What the
-        # gate controls is whether a model is asked to adjudicate it.
-        raise_alert(
-            "agent_swarm" if swarm else "rebuilt_attempt", CRITICAL,
-            ("Agent swarm" if swarm else "Rebuilt attempt")
-            + f" on account '{mandate.payer_id}'",
-            (f"{len(swarm_seen.get(mandate.payer_id, ()))} distinct agent "
-             "credentials presented slips for one payer."
-             if swarm else
-             "The same actor kept re-presenting a rebuilt attempt after "
-             "refusals. An honest retry changes the cart; this changed "
-             "nothing but the nonce."),
-            txn_id=txn_id, actor=mandate.payer_id)
+        headline, _, reason = ESCALATIONS[shape]
+        if shape == "agent_swarm":
+            # The swarm is the only shape with no detector alert of its own,
+            # because it is found by detect_swarm rather than by behavior.py.
+            # The coupon shapes were already reported, with better detail, by
+            # the detector that found them: raising them again under the same
+            # kind would file two different alerts under one name, which is
+            # what the console deduplicates by.
+            raise_alert(
+                shape, CRITICAL,
+                f"{headline} on account '{mandate.payer_id}'",
+                f"{len(swarm_seen.get(mandate.payer_id, ()))} distinct agent "
+                "credentials presented slips for one payer.",
+                txn_id=txn_id, actor=mandate.payer_id)
+
         if not ai_gate_enabled:
             # The operator turned the adjudicator off. The pattern is named
             # above; what stops is the model call, the ai_attack verdict, and
             # the automatic cooldown. Cheaper, not blind.
             release_adjudication(mandate.payer_id)
-        elif swarm:
+        else:
             signals = {
+                "pattern": shape,
                 "detectors_fired": [p.to_dict() for p in patterns],
-                "swarm_agents_on_this_payer": sorted(swarm_seen.get(mandate.payer_id, ())),
                 "verdict_this_attempt": decision.verdict,
                 "cart_lines": [ln.description for ln in cart.lines],
                 "human_asked_for": mandate.prompt_playback[:160],
             }
+            if shape == "agent_swarm":
+                signals["swarm_agents_on_this_payer"] = sorted(
+                    swarm_seen.get(mandate.payer_id, ()))
+            else:
+                code = cart.discount_code or ""
+                evidence = coupon_watch.evidence(code)
+                public = COUPONS.is_public(code)
+
+                # Settle it by counting if counting can settle it. Only a case
+                # the numbers cannot read is worth a model call: handing a model
+                # arithmetic it does not need is how the spending cap ended up
+                # being re-decided in FAILURES entry 10, and a decision table in
+                # the prompt cost four of eight attacks before this replaced it.
+                settled = coupon_verdict(evidence, public)
+                if settled is not None:
+                    convict, why = settled
+                    release_adjudication(mandate.payer_id)
+                    if convict:
+                        raise_alert(
+                            "coupon_abuse_confirmed", CRITICAL,
+                            f"Coupon abuse on account '{mandate.payer_id}'",
+                            f"Decided by counting, with no model involved: {why}.",
+                            txn_id=txn_id, actor=mandate.payer_id)
+                        held = cooldowns.trigger(
+                            mandate.payer_id, reason,
+                            {"decided_by": "rules", "reason": why})
+                        raise_alert(
+                            "account_cooled", CRITICAL,
+                            f"Account '{mandate.payer_id}' blocked for "
+                            f"{held.seconds_left // 60} minutes",
+                            f"Reason: {held.reason}. {why.capitalize()}. An "
+                            "operator can release this early in the console.",
+                            txn_id=txn_id, actor=mandate.payer_id)
+                    signals = None
+                else:
+                    signals.update(evidence)
+                    signals["claimed_this_attempt_rupees"] = round(
+                        int(cart.discount_paise or 0) / 100, 2)
+                    # Spelled out rather than passed as a bare boolean: a
+                    # `False` sitting in a block of numbers was read as "public"
+                    # more than once.
+                    signals["code_is_publicly_advertised"] = (
+                        "UNKNOWN, this code is not in the merchant's book"
+                        if public is None else
+                        "YES, an advertised campaign that anyone may use"
+                        if public else
+                        "NO, this code was issued to a single named customer")
+
             # Off the request thread. The verdict for THIS attempt is already
             # decided and the cooldown lands on the next one, so there is
             # nothing for the customer to wait for. Leaving it inline made a
@@ -502,18 +593,12 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
             # the adjudicator in the payment path by latency after the design
             # went to some trouble to keep it out of the payment path by
             # authority.
-            threading.Thread(
-                target=adjudicate_swarm,
-                args=(cart.agent_id or mandate.payer_id, mandate.payer_id,
-                      signals, txn_id),
-                name="adjudicate-" + txn_id, daemon=True).start()
-        else:
-            # A rebuilt attempt without a cooling account: the pattern is on
-            # the record. Under the default gate the adjudicator would weigh
-            # it, but a rebuilt attempt is already handled - the replay check
-            # refused the rebuild, so the escalation here would only ever
-            # re-derive that. It is named, not re-adjudicated.
-            release_adjudication(mandate.payer_id)
+            if signals is not None:
+                threading.Thread(
+                    target=adjudicate,
+                    args=(cart.agent_id or mandate.payer_id, mandate.payer_id,
+                          signals, txn_id, reason),
+                    name="adjudicate-" + txn_id, daemon=True).start()
 
     if threat is None and not patterns:
         return None

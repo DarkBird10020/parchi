@@ -336,7 +336,7 @@ def test_the_claim_is_given_back_even_when_the_adjudicator_raises(monkeypatch):
 
     monkeypatch.setattr(server, "assess_attack", boom)
     server.adjudicating.clear()
-    server.adjudicate_swarm("agt_1", "usr_stuck", {"x": 1}, "txn_1")
+    server.adjudicate("agt_1", "usr_stuck", {"x": 1}, "txn_1", "a reason")
     assert "usr_stuck" not in server.adjudicating
     assert not server.cooldowns.check("usr_stuck").active, (
         "a failed adjudication must never cool an account")

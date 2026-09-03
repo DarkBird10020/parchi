@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-303%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-315%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -52,7 +52,7 @@ can prove what was authorised when a customer says *"my agent did that, I didn't
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Results](#results) ·
 [The demo](#the-demo) · [The operations console](#the-operations-console) ·
 [Patterns one cart cannot show](#the-patterns-one-cart-cannot-show) ·
-[The AI escalation](#the-ai-escalation-and-the-ten-minute-block) ·
+[What earns a block](#what-earns-the-ten-minute-block) ·
 [Adversarial testing](#adversarial-testing) · [The slip](#the-slip) ·
 [Lying about the price](#lying-about-the-price) ·
 [Why this and not the alternative](#why-this-and-not-the-obvious-alternative) ·
@@ -379,6 +379,7 @@ about exactly one of them. Every refusal is classified before it is reported:
 | One coupon code spread across many mandates | `coupon_farming` | critical |
 | Same code claimed at different values across attempts | `discount_drift` | high |
 | AI adjudicator confirms the pattern is an attack | `ai_attack` | critical |
+| Coupon abuse confirmed by counting, no model asked | `coupon_abuse_confirmed` | critical |
 | Attack confirmed: account blocked for 10 minutes | `account_cooled` | critical |
 | An attempt from a cooling account | `cooldown_block` | high |
 
@@ -403,7 +404,7 @@ dead webhook still returns a successful refund.
 
 ### The patterns one cart cannot show
 
-The last seven rows of that table come from a second layer. The per-cart checks
+The last eight rows of that table come from a second layer. The per-cart checks
 judge one cart against one mandate; `parchi/behavior.py` asks what the *sequence*
 of attempts says. Nothing in it can change a verdict. It decides who hears about
 one.
@@ -440,28 +441,50 @@ same trade the demo's own keys already make; `demo/users.jsonl` keeps the public
 half, and the file is rewritten when a key is minted so the stored key always
 verifies what the process is signing.
 
-### The AI escalation, and the ten-minute block
+### What earns the ten-minute block
 
-Two shapes are never accidents: an attempt rebuilt after a refusal, and **one
-payer presented by many agent credentials**. Agents here are registered
-credentials, so many faces on one wallet is not a household sharing a login. It is
-a hijacked payer key being worked by a farm.
+Most patterns are worth an alert and nothing more, because a counter cannot
+tell a busy customer from a bot. Three shapes earn a cooldown, and they get
+there by two different routes.
 
-For those, the checkpoint asks a model to read the situation, cart contents, the
-human's actual request, the detector evidence and the swarm roster, and answer the
-question a counter cannot: *is this account genuinely under attack?*
+**Settled by counting.** Two of the three need no model at all:
 
-A confident yes cools the account for **10 minutes**, enforced as a deterministic
-check before anything else runs, covering every agent that could present that
-payer's slips. A person can lift it from the console, because an automatic block
-nobody can undo is a lockout waiting for 3am.
+| Shape | Why it is arithmetic |
+|:--- |:--- |
+| One code claimed at **more than one value** | A coupon is worth what it is worth. No sale, retry or honest mistake makes one code pay two different sums. Raising the claimed value on a code you have already used is the coupon rail being probed, and there is nothing to weigh up. |
+| One code being **farmed** | One payer carrying a code across many mandates is farming whatever the code is. Many payers on a code the merchant issued to a single named customer means it has leaked. Both are counting plus a lookup in the merchant's own book. |
+
+That second row is why `Coupon` carries a `public` flag. Twenty-six payers on
+one code is a Diwali sale if the code was advertised and a leak if it was
+issued to one person, and no amount of counting tells you which. The merchant
+already knows; the system just had to ask.
+
+**Sent to the adjudicator.** One shape is left, and it is the one counting
+cannot settle: **a swarm**, several genuinely registered agent credentials all
+presenting slips for one payer. Every deterministic check passes for every one
+of them. What a counter cannot say is whether this fan-out is a credential farm
+or an integration behaving oddly, so a model reads the situation, and the
+ratchet triggers only on its verdict at or above the confidence gate.
+
+A confident yes cools the account for **10 minutes**, enforced as a
+deterministic check before anything else runs, covering every agent that could
+present that payer's slips. A person can lift it from the console, because an
+automatic block nobody can undo is a lockout waiting for 3am.
 
 It stays out of the payment path in both senses that matter. It cannot change a
-verdict, and it runs on its own thread after the decision is made, so a slow model
-costs nobody a wait. One incident is reviewed once, not once per attempt. With no
-provider configured it fails open and the deterministic alerts stand on their own.
-The worst a wrong answer here can do is cost someone ten minutes that a human can
-give back.
+verdict, and it runs on its own thread after the decision is made, so a slow
+model costs nobody a wait. One incident is reviewed once, not once per attempt.
+With no provider configured it fails open and the deterministic alerts stand on
+their own. The worst a wrong answer here can do is cost someone ten minutes
+that a human can give back.
+
+> [!NOTE]
+> The coupon rules were put to the model first, which was a mistake of the same
+> family as FAILURES entry 10. Adding a numbered decision table to the prompt to
+> help it dropped recall on the attack half of `eval/adjudicator.py` from five
+> of six to four of eight. Counting distinct payers is not a judgement call.
+> Moving it into `coupon_verdict` made those decisions exact, free, and
+> reproducible with no API key.
 
 #### The adjudicator is scored, because it can lock out a real customer
 
@@ -753,7 +776,7 @@ parchi/
 │   ├── evaluate.py        # precision, recall, false-positive rupee cost, baselines
 │   ├── heldout.py         # hand-written cases the generator never produced
 │   └── adjudicator.py     # scores the AI that can lock a customer out
-├── tests/                 # 303, including the 48 adversarial patterns
+├── tests/                 # 315, including the 48 adversarial patterns
 ├── demo/                  # fastapi server, the shop page, the operations console
 ├── docs/upi-mapping.md    # mandate fields mapped onto UPI Reserve Pay
 └── FAILURES.md            # what broke, what it actually was, what it cost

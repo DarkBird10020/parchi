@@ -118,8 +118,8 @@ class CouponWatcher:
         self.hot_threshold = hot_threshold
         self.hot_window = hot_window_seconds
         self.max_mandates = max_mandates_per_code
-        # code -> deque of (ts, actor, mandate_id, claimed_paise)
-        self._events: dict[str, deque[tuple[float, str, str, int]]] = {}
+        # code -> deque of (ts, actor, payer, mandate_id, claimed_paise)
+        self._events: dict[str, deque[tuple[float, str, str, str, int]]] = {}
         # codes that already raised their per-code alert, by alert kind
         self._raised: dict[str, set[str]] = {}
         self._lock = threading.Lock()
@@ -151,7 +151,8 @@ class CouponWatcher:
         patterns: list[Pattern] = []
         with self._lock:
             events = self._events.setdefault(code, deque())
-            events.append((now, actor, mandate_id, claimed))
+            payer = mandate.payer_id if mandate else ""
+            events.append((now, actor, payer, mandate_id, claimed))
             self._prune(code, now)
             raised = self._raised.setdefault(code, set())
 
@@ -172,7 +173,7 @@ class CouponWatcher:
             # Tier 2: mandates. The count that separates farming from a popular
             # coupon. Two actors sharing a code is a sale; one code spread over
             # dozens of distinct mandates is harvested permission slips.
-            distinct = {m for (_, _, m, _) in events if m}
+            distinct = {m for (_, _, _, m, _) in events if m}
             if len(distinct) >= self.max_mandates and "coupon_farming" not in raised:
                 raised.add("coupon_farming")
                 patterns.append(Pattern(
@@ -200,7 +201,7 @@ class CouponWatcher:
             return None
         with self._lock:
             seen: dict[int, float] = {}
-            for ts, _actor, _mid, claimed in self._events.get(code, ()):
+            for ts, _actor, _payer, _mid, claimed in self._events.get(code, ()):
                 seen.setdefault(claimed, ts)
             if len(seen) < 2 or "discount_drift" in self._raised.setdefault(code, set()):
                 return None
@@ -216,6 +217,27 @@ class CouponWatcher:
                 f"{len(values)} different amounts is an enumeration pattern "
                 "against the coupon rail.",
                 "unknown")
+
+    def evidence(self, code: str, now: float | None = None) -> dict[str, Any]:
+        """What is known about one code, as facts rather than prose.
+
+        The alert text reads well for a human; a model needs the numbers it is
+        being asked to weigh. Distinct payers is the one that decides the
+        question: many payers on one code is a public sale however hot it
+        looks, and one payer across many mandates is farming.
+        """
+        code = norm(code or "")
+        with self._lock:
+            events = list(self._events.get(code, ()))
+        values = sorted({claimed for (_, _, _, _, claimed) in events})
+        return {
+            "code": code,
+            "window_seconds": self.hot_window,
+            "attempts_in_window": len(events),
+            "distinct_mandates_on_this_code": len({m for (_, _, _, m, _) in events if m}),
+            "distinct_payers_on_this_code": len({p for (_, _, p, _, _) in events if p}),
+            "claimed_values_rupees": [round(v / 100, 2) for v in values],
+        }
 
     def reset(self) -> None:
         with self._lock:
@@ -266,3 +288,59 @@ def check_patterns(cart: Cart, mandate: IntentMandate | None,
     if "discount_drift" in kinds and ("coupon_hot" in kinds or "coupon_farming" in kinds):
         patterns = [p for p in patterns if p.kind != "discount_drift"]
     return patterns
+
+
+# --------------------------------------------------------------------------
+# The part of coupon abuse that is arithmetic rather than judgement.
+#
+# The adjudicator was asked to work through a numbered decision table on these,
+# and it did what models do with numbered decision tables: applied them
+# unevenly. Recall on the attack half fell from 5/6 to 4/8 the moment the table
+# went in.
+#
+# The table was the wrong tool, not the wrong wording. Counting distinct payers
+# and looking a code up in the merchant's own book are not judgement calls, and
+# FAILURES entry 10 is already about what happens when a model is handed
+# arithmetic: it re-decides it, worse. So the countable part is decided here,
+# and only a genuinely ambiguous case is worth a model call.
+# --------------------------------------------------------------------------
+
+def coupon_verdict(evidence: dict[str, Any],
+                   is_public: bool | None) -> tuple[bool, str] | None:
+    """Settle a coupon pattern from the numbers, or return None if it cannot be.
+
+    `evidence` is `CouponWatcher.evidence(code)`. `is_public` comes from the
+    merchant's coupon book: True for an advertised campaign, False for a code
+    issued to one named customer, None when the code is not in the book at all.
+
+    Returns `(convict, reason)` when the numbers decide it, and `None` when
+    they do not, which is the only case worth spending a model call on.
+    """
+    values = evidence.get("claimed_values_rupees") or []
+    payers = int(evidence.get("distinct_payers_on_this_code") or 0)
+    mandates = int(evidence.get("distinct_mandates_on_this_code") or 0)
+
+    if len(values) > 1:
+        # A coupon is worth what it is worth. No sale, retry or honest mistake
+        # makes one code pay two different sums.
+        shown = ", ".join(f"Rs {v:,.2f}" for v in values)
+        return True, (f"the same code was claimed at {len(values)} different "
+                      f"values ({shown}), which is enumeration of the coupon "
+                      "rail and has no innocent version")
+
+    if payers == 1 and mandates >= 3:
+        # A sale is many people using a code once. This is one person using it
+        # many times, and a public code does not excuse that.
+        return True, (f"one payer carried this code across {mandates} separate "
+                      "mandates, which is farming rather than shopping")
+
+    if payers >= 3 and is_public is False:
+        return True, (f"{payers} different payers spent a code that was issued "
+                      "to a single named customer, so the code has leaked")
+
+    if payers >= 3 and is_public is True:
+        return False, (f"{payers} different payers on an advertised code is the "
+                       "campaign working as intended")
+
+    # An unknown code, or too little traffic to read. Ambiguous on purpose.
+    return None

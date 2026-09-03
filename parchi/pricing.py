@@ -41,6 +41,15 @@ class Coupon:
     min_spend_paise: int = 0
     categories: tuple = ()            # empty means any category
     expires_at: int = 0               # unix seconds, 0 means never
+    # Is this code advertised to everyone, or issued to one customer?
+    #
+    # It changes nothing about what the coupon is worth, and everything about
+    # what heavy use of it means. Many payers on a public code is a sale doing
+    # its job. Many payers on a single-issue code is a code that leaked. The
+    # behavioural layer cannot tell those apart by counting, so the merchant's
+    # own book has to say which one it is, rather than leaving a model to guess
+    # from the name.
+    public: bool = False
 
     def value_for(self, gross_paise: int) -> int:
         """What this coupon is actually worth on a cart of this size.
@@ -73,6 +82,16 @@ class CouponBook:
 
     def __len__(self) -> int:
         return len(self._by_code)
+
+    def is_public(self, code: str) -> bool | None:
+        """Whether this code is advertised publicly. None if it is not ours.
+
+        `None` rather than False for an unknown code, because "we have never
+        heard of this code" and "this code is not public" are different facts
+        and a caller that conflates them is guessing.
+        """
+        coupon = self.get(code)
+        return None if coupon is None else bool(coupon.public)
 
 
 class PriceBook:

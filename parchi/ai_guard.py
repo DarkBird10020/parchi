@@ -89,7 +89,8 @@ What actually separates the two
 -------------------------------
 Coupon use: count PAYERS, not attempts. Many different payers on one code is a
 public sale, however hot it looks. One payer sweeping a code across many
-mandates is farming.
+mandates is farming. Most coupon cases never reach you at all, because the ones
+that can be settled by counting are settled before this is called.
 
 Repeated attempts: count what CHANGED, and check what happened last time.
 The same cart resubmitted after no verdict, or after it was allowed, is a retry

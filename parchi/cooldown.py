@@ -1,25 +1,38 @@
 """Automatic cooldown: 10 minutes, then a human decides.
 
-`behavior.py` names patterns; this module acts on the two that are never
-accidents. Two gates, each deliberate:
+`behavior.py` names patterns. Most of them are worth an alert and nothing more,
+because a counter cannot tell a busy customer from a bot. Three shapes earn the
+cooldown, and they arrive by two different routes.
 
-- **AI-confirmed escalation.** The adjudicator in `ai_guard.py` reads the
-  account's recent history and says whether the pattern is really an attack.
-  The ratchet triggers only on its verdict at or above the confidence gate.
-  The counter fires, the adjudicator reads the situation, and only then does
-  the account cool down. If the model is unavailable the trigger simply stays a threshold
-  decision (fail-open for an opinion), and the human still gets the alert.
+**Settled by counting, no model involved.**
 
-- **Swarm.** Many agent ids presenting mandates that all name the same payer is
+- *A coupon claimed at more than one value.* A coupon is worth what it is
+  worth. No sale, retry or honest mistake makes one code pay two different
+  sums, so there is nothing here to weigh up.
+- *A coupon being farmed.* One payer carrying a code across many mandates is
+  farming whatever the code is; many payers on a code the merchant issued to
+  one named customer means it has leaked. Both are arithmetic plus a lookup in
+  the merchant's own book, so `coupon_verdict` decides them and no model is
+  asked. Handing a model countable facts is how the spending cap ended up being
+  re-decided in FAILURES entry 10, and a decision table in the prompt cost four
+  of eight attacks before it was taken back out.
+
+**Sent to the adjudicator, because counting cannot settle it.**
+
+- *Swarm.* Many agent ids presenting mandates that all name the same payer is
   one account wearing many faces. Agents are registered credentials, so the
   legitimate version of "my household shares one login" does not exist here,
-  and one hijacked payer key fanned out across a farm of agents is exactly the
-  shape of a stolen-key harvest.
+  and one hijacked payer key fanned out across a farm of agents is the shape of
+  a stolen-key harvest. What a counter cannot tell you is whether this
+  particular fan-out is a farm or an integration doing something odd, so
+  `ai_guard.py` reads it and the ratchet triggers only on its verdict at or
+  above the confidence gate. An unavailable model blocks nobody: the alert
+  still reaches a human and the deterministic refusals still stand.
 
-The cooldown is enforced in `check_account`, one of the deterministic checks:
-it runs early, short-circuits, and no money moves from a cooled account. The
-operator sees a critical alert with a release button, because an automatic
-block with no human release is a lockout nobody can undo at 3am.
+The cooldown is enforced before the engine runs: it short-circuits, and no
+money moves from a cooled account. The operator sees a critical alert with a
+release button, because an automatic block with no human release is a lockout
+nobody can undo at 3am, and the release is logged with their name on it.
 """
 
 from __future__ import annotations

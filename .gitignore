@@ -27,3 +27,9 @@ design/parchi-landing-page.html
 # Sub-sampled scoreboard runs (--limit). Not the published batch; keeping them
 # out stops a 25-row number being mistaken for the 1,000-row one.
 eval/results_sample_*.json
+
+# Scratch from comparing evaluation runs, and the extracted page script the
+# syntax checker writes. Neither belongs in the repo.
+eval/_*.json
+eval/_*.jsonl
+_block*.mjs

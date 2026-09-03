@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-143%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-144%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -69,7 +69,7 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python -m pytest tests/ -q    # 143 tests
+python -m pytest tests/ -q    # 144 tests
 python tests/test_attacks.py  # 48 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```

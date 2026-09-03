@@ -114,7 +114,7 @@ jobs:
 
       - name: Boot the checkpoint and run every scenario
         run: |
-          python demo/server.py &
+          PARCHI_DEMO_PROVIDER=heuristic python demo/server.py &
           for i in $(seq 1 30); do
             curl -sf http://127.0.0.1:8000/api/scenarios >/dev/null && break
             sleep 1

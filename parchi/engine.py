@@ -15,7 +15,7 @@ from .agents import AgentRegistry
 from .checks import CheckResult, NonceStore, all_passed, run_all
 from .intent_match import IntentVerdict, intent_matches
 from .ledger import Ledger
-from .mandate import STEP_UP_PAISE, Cart, IntentMandate, rupees
+from .mandate import MAX_CART_LINES, STEP_UP_PAISE, Cart, IntentMandate, rupees
 from .pricing import CouponBook, PriceBook
 
 ALLOW = "ALLOW"
@@ -133,7 +133,15 @@ class Engine:
                     "payee_id": cart.payee_id,
                     "method": cart.method,
                     "total_paise": cart.total_paise,
-                    "lines": [ln.to_dict() for ln in cart.lines],
+                    "lines": [
+                        {
+                            **ln.to_dict(),
+                            "description": ln.description[:500],
+                            "category": ln.category[:100],
+                        }
+                        for ln in cart.lines[:MAX_CART_LINES]
+                    ],
+                    "lines_truncated": len(cart.lines) > MAX_CART_LINES,
                 },
                 checks=[c.to_dict() for c in decision.checks],
                 verdict=decision.verdict,

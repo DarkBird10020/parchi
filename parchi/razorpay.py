@@ -106,7 +106,7 @@ class RazorpayClient:
             raise RazorpayError(f"Razorpay Orders API unavailable ({type(exc).__name__})") from None
         if result.get("amount") != amount_paise or result.get("currency") != "INR":
             raise RazorpayError("Razorpay order amount or currency mismatch")
-        if not str(result.get("id", "")).startswith("order_"):
+        if not str(result.get("id", "")).startswith("order_") or not result.get("status"):
             raise RazorpayError("Razorpay returned an invalid order id")
         return RazorpayOrder(result["id"], result["amount"], result["currency"], result["status"])
 

@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import secrets
@@ -79,7 +80,7 @@ agents.register(AGENT_ID, AGENT_PUB)
 DEMO_TIMEOUT = float(os.environ.get("PARCHI_DEMO_TIMEOUT", "25"))
 
 engine = Engine(ledger=Ledger(LEDGER_PATH), nonces=nonces, agents=agents,
-                provider="auto", timeout=DEMO_TIMEOUT)
+                provider=os.environ.get("PARCHI_DEMO_PROVIDER", "auto"), timeout=DEMO_TIMEOUT)
 razorpay = RazorpayClient.from_env()
 HUMAN_APPROVAL_SECRET = os.environ.get("PARCHI_HUMAN_APPROVAL_SECRET", "").strip()
 state_lock = threading.Lock()
@@ -725,7 +726,7 @@ async def razorpay_webhook(request: Request):
     entity = refund_entity if kind == "refund.processed" else payment_entity
     payment_id = entity.get("payment_id", "") if kind == "refund.processed" else entity.get("id", "")
     order_id = payment_entity.get("order_id", "")
-    event_id = request.headers.get("X-Razorpay-Event-Id", "")
+    event_id = request.headers.get("X-Razorpay-Event-Id", "") or hashlib.sha256(raw).hexdigest()
 
     with state_lock:
         record = next((r for r in authorizations.values() if (
@@ -783,7 +784,7 @@ async def razorpay_webhook(request: Request):
         },
         checks=[{"check": "webhook_signature", "passed": True,
                  "reason": "X-Razorpay-Signature verified over the raw body"}],
-        verdict=ALLOW if state == "CAPTURED" else BLOCK,
+        verdict=ALLOW if state == "CAPTURED" else state,
         degraded=False, intent=None,
     )
     return {"ok": True, "event": kind, "matched": True, "authorization_id": txn_id}
@@ -837,8 +838,8 @@ def settle(req: SettleRequest):
     refund = None
     if not matched:
         refund = {
-            "amount_paise": delivered.total_paise,
-            "display": rupees(delivered.total_paise),
+            "amount_paise": authorised.total_paise,
+            "display": rupees(authorised.total_paise),
             "reason": failed.reason,
             "check": failed.name,
         }

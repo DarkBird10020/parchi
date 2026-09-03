@@ -324,6 +324,20 @@ def test_ledger_records_the_approvals_too():
         assert verdicts == [ALLOW, BLOCK]
 
 
+def test_rejected_line_flood_is_bounded_in_the_ledger():
+    with tempfile.TemporaryDirectory() as tmp:
+        path = os.path.join(tmp, "ledger.jsonl")
+        m = a_mandate()
+        cart = Cart(tuple(CartLine(f"item {i}", "footwear", 1) for i in range(2_000)),
+                    "upi", "mrc_bluleaf")
+        decision = engine(ledger=Ledger(path)).authorize(
+            m, sign(m, KEY), PUB, cart, now=NOW, txn_id="txn_flood")
+        record = next(Ledger(path).records())
+        assert decision.verdict == BLOCK
+        assert len(record["txn"]["lines"]) == 50
+        assert record["txn"]["lines_truncated"] is True
+
+
 def test_malformed_ledger_is_reported_instead_of_crashing():
     with tempfile.TemporaryDirectory() as tmp:
         path = os.path.join(tmp, "ledger.jsonl")

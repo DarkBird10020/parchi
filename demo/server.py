@@ -134,7 +134,13 @@ agents.register(AGENT_ID, AGENT_PUB)
 # into a degraded STEP_UP on screen. The verdict would be correct and the demo
 # would be worthless. CI never saw it: with no key the provider resolves to the
 # offline matcher, which answers instantly.
-DEMO_TIMEOUT = float(os.environ.get("PARCHI_DEMO_TIMEOUT", "25"))
+# 25s was not enough headroom once the endpoint moved to reasoning models.
+# A timeout does not fail loudly here - it DEGRADES, and a degraded intent
+# check returns STEP_UP, so every model-bound scenario quietly showed
+# "ask the human" instead of its real verdict and the demo looked as though
+# it had one answer for everything. The fast model measures 6-18s; this
+# leaves room for the slow tail rather than sitting on top of it.
+DEMO_TIMEOUT = float(os.environ.get("PARCHI_DEMO_TIMEOUT", "45"))
 
 engine = Engine(ledger=Ledger(LEDGER_PATH), nonces=nonces, agents=agents,
                 coupons=COUPONS, prices=PRICES,

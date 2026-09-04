@@ -111,6 +111,12 @@
   .stamp.BLOCK{border-color:var(--block); color:var(--block)}
   .stamp.STEP_UP{border-color:var(--stepup); color:var(--stepup)}
   .stamp.IDLE{border-color:var(--rule-2); color:var(--ink-4); transform:none}
+  .secretrow{display:inline-flex; align-items:center; gap:8px; flex-wrap:wrap}
+  .secretrow label{font-family:var(--mono); font-size:10px; letter-spacing:.14em;
+                   text-transform:uppercase; color:var(--ink-3)}
+  .secretrow input{border:1px solid var(--rule); background:var(--paper);
+                   padding:7px 10px; font:13px var(--mono); min-width:0; width:240px}
+  .secretrow input:focus{outline:2px solid var(--ink-4); outline-offset:1px}
 
   /* ---------- printed sheets & verdicts ---------- */
   .sheet{background:var(--card); border:1px solid var(--rule)}
@@ -667,6 +673,13 @@
           <span class="stamp IDLE" id="verdict">READY</span>
         </div>    <div class="toolbar" id="authorizationActions" hidden>
       <button class="btn primary" id="btnApprove" hidden>Approve step-up</button>
+      <span class="secretrow" id="secretRow" hidden>
+        <label for="secretInput">Human approval secret</label>
+        <input type="password" id="secretInput" autocomplete="off"
+               placeholder="PARCHI_HUMAN_APPROVAL_SECRET" />
+        <button class="btn sm primary" id="secretOk" type="button">Confirm</button>
+        <button class="btn sm" id="secretCancel" type="button">Cancel</button>
+      </span>
       <button class="btn primary" id="btnPay" hidden>Pay with Razorpay test mode</button>
         <button class="btn" id="btnSettle" hidden>Merchant ships the order</button>
         <span class="dim" id="authorizationStatus" aria-live="polite"></span>
@@ -1227,15 +1240,60 @@ async function run(id, btn){
   loadLedger();
 }
 
+// Ask for the approval secret in the page rather than in a browser dialog.
+// Resolves to the string, or "" if the operator backs out.
+function askForSecret(){
+  return new Promise(resolve => {
+    const row = $("#secretRow"), input = $("#secretInput");
+    row.hidden = false;
+    input.value = "";
+    input.focus();
+    const done = (value) => {
+      row.hidden = true;
+      $("#secretOk").removeEventListener("click", ok);
+      $("#secretCancel").removeEventListener("click", cancel);
+      input.removeEventListener("keydown", key);
+      resolve(value);
+    };
+    const ok = () => done(input.value.trim());
+    const cancel = () => done("");
+    const key = (e) => {
+      if(e.key === "Enter"){ e.preventDefault(); ok(); }
+      if(e.key === "Escape"){ e.preventDefault(); cancel(); }
+    };
+    $("#secretOk").addEventListener("click", ok);
+    $("#secretCancel").addEventListener("click", cancel);
+    input.addEventListener("keydown", key);
+  });
+}
+
 async function approveStepUp(){
   const button = $("#btnApprove");
   button.disabled = true;
   try {
-    const humanSecret = prompt("Enter human approval secret from server environment");
-    if (!humanSecret) throw new Error("Human approval cancelled");
-    const token = await api(`/api/human/approval-token/${currentAuthorization}`, {
-      headers:{"X-Parchi-Human-Secret": humanSecret}
-    });
+    // A step-up is the human's decision, so approving it needs a credential the
+    // agent does not have. That is the security property and it stays. What
+    // changed is how it is asked for: a blocking browser prompt() freezes the
+    // page, looks like a phishing box, and is asked again on every approval.
+    // The secret is taken inline and kept for the tab only.
+    let humanSecret = sessionStorage.getItem("parchi_human_secret") || "";
+    if(!humanSecret){
+      humanSecret = await askForSecret();
+      if(!humanSecret) throw new Error("Approval cancelled");
+    }
+    let token;
+    try {
+      token = await api(`/api/human/approval-token/${currentAuthorization}`, {
+        headers:{"X-Parchi-Human-Secret": humanSecret}
+      });
+    } catch(err) {
+      sessionStorage.removeItem("parchi_human_secret");
+      if(/503/.test(err.message))
+        throw new Error("The human-approval channel is not configured on this "
+          + "server. Set PARCHI_HUMAN_APPROVAL_SECRET in .env and restart.");
+      throw new Error("That approval secret was not accepted.");
+    }
+    sessionStorage.setItem("parchi_human_secret", humanSecret);
     currentApprovalToken = token.approval_token;
     const r = await api("/api/approve", {
       method:"POST", headers:{"content-type":"application/json"},

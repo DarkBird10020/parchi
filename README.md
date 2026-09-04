@@ -421,6 +421,21 @@ any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLO
 python demo/server.py     # → http://127.0.0.1:8000
 ```
 
+> [!NOTE]
+> **On hosting it.** `render.yaml` deploys this as a normal web service, and it
+> has to be one: the adjudicator answers on a background thread *after* the
+> response is sent, the ten-minute cooldown is in-memory state shared between
+> requests, and the ledger is a hash chain appended to on disk. Netlify and
+> Vercel are static hosting plus short-lived serverless functions, so on either
+> the swarm never gets adjudicated, the cooldown never holds, and the chain
+> restarts every request.
+>
+> That config sets **no API key**, deliberately. A key on a public page is spent
+> by whoever finds it first, and it costs nothing to leave out:
+> `PARCHI_DEMO_PROVIDER=heuristic` runs the offline matcher, all sixteen
+> scenarios return their correct verdicts including the prompt injection, and
+> it is the same reproducible no-key path published above as 280/280.
+
 Sixteen scenarios, each a real `POST /api/authorize`. Every check and its reason
 is shown, the evidence pack is the JSON a merchant would send to an issuer, and
 the ledger pane verifies its own hash chain, with a **Tamper** button, because

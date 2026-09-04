@@ -1,0 +1,50 @@
+# Deploying the demo.
+#
+# Netlify and Vercel cannot host this. Both are static hosting plus short-lived
+# serverless functions, and this is a long-running process: the adjudicator
+# answers on a background thread AFTER the response is sent, the ten-minute
+# cooldown is in-memory state shared between requests, and the ledger is a
+# hash chain appended to on disk. On a serverless host the swarm never gets
+# adjudicated, the cooldown never holds, and the chain restarts every request.
+#
+# So this is a normal web service on a host that runs a normal process.
+# Render is named here because its free tier does that from a GitHub repo with
+# no card; Railway, Fly.io and Hugging Face Spaces all work the same way.
+#
+# NO API KEY IS SET, deliberately.
+#
+# Two reasons, and the second is the one that matters. A public demo is public:
+# a key on it is spent by whoever finds it first, and the dev key this repo is
+# built against allows 100 requests every five hours - roughly one curious
+# visitor. A live demo that dies while someone is judging it is worse than one
+# that never claimed to be live.
+#
+# And it costs nothing to leave out. `PARCHI_DEMO_PROVIDER=heuristic` runs the
+# offline lexical matcher in place of the model call, all sixteen scenarios
+# return their correct verdicts including the prompt injection, and it is the
+# same reproducible no-key path the README publishes as 280/280. The page says
+# on itself that the Parchi row came from the stand-in rather than a model,
+# which is exactly what it should say when that is true.
+#
+# To run it against a real model, set PARCHI_OPENAI_API_KEY in the host's
+# environment and drop PARCHI_DEMO_PROVIDER. Do that on a private deploy.
+
+services:
+  - type: web
+    name: parchi-demo
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn demo.server:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12"
+      # The offline matcher, so the demo needs no key and cannot be run up a
+      # bill. Remove this to use a real model on a private deploy.
+      - key: PARCHI_DEMO_PROVIDER
+        value: heuristic
+      # The console is OFF unless an operator is configured, which is what
+      # should happen on a public host: it is a fraud console, and the page
+      # a public deploy must not hand anybody is the one showing which
+      # attempts were noticed.

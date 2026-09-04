@@ -383,6 +383,22 @@ _reported_breaks: set[str] = set()
 # refusal, so they are counted rather than inferred from the alert list.
 probes = ProbeDetector()
 
+# And a SECOND counter, for payee substitution alone.
+#
+# These two questions look similar and are not. "Is this actor being refused a
+# lot?" is about someone mapping where the wall is, and every refusal counts
+# toward it whatever the reason. "Is this actor trying to redirect the money
+# again and again?" is about one specific attack, and only payee substitutions
+# count toward that.
+#
+# Sharing one counter conflated them. The payee cooldown fired on the first
+# substitution an account ever attempted, as long as four unrelated refusals -
+# an expired mandate, a wrong method, anything - happened to precede it inside
+# the window. Worse than the false trigger, it wrote a false sentence into an
+# operator's alert and into the ledger: "5 refused payee substitution attempts"
+# when there had been exactly one.
+payee_probes = ProbeDetector()
+
 # Behavioural detectors: the patterns no single cart can show. The burst
 # watcher counts ALL attempts from one actor, allowed ones included, because
 # a bot that wants volume gets it one correct verdict at a time. The coupon
@@ -701,13 +717,17 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
     # threshold up the account itself is held for the cooldown's ten minutes,
     # the user is told through the cooldown state the page already polls, and
     # the operator sees it on the release panel like every other held account.
-    if (threat is not None and threat.kind == "payee_substitution"
-            and probes.is_probing(count)
+    payee_count = (payee_probes.record(actor)
+                   if threat is not None and threat.kind == "payee_substitution"
+                   else 0)
+    if (payee_probes.is_probing(payee_count)
             and not cooldowns.check(mandate.payer_id).active):
         held = cooldowns.trigger(
             mandate.payer_id, "repeated payee substitution attempts",
-            {"decided_by": "rules", "refused_attempts_in_window": count})
-        if count == probes.threshold:
+            {"decided_by": "rules",
+             "payee_substitutions_in_window": payee_count})
+        count = payee_count
+        if count == payee_probes.threshold:
             raise_alert(
                 "payee_substitution_blocked", CRITICAL,
                 f"Account '{mandate.payer_id}' blocked for "
@@ -2683,6 +2703,7 @@ def reset():
     # same break. Forgetting lets the next tamper alert fire.
     _reported_breaks.clear()
     probes.reset()
+    payee_probes.reset()
     autonomous_defense_enabled = False
     return {"ok": True}
 

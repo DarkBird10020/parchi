@@ -122,6 +122,12 @@
   .verdictbox{padding:26px 22px 20px; display:flex; gap:24px; align-items:flex-start}
   .verdictbox .body{flex:1; min-width:0}
   .reason{font-size:20px; line-height:1.5; max-width:46ch; text-wrap:pretty}
+  /* The cooldown explainer is an aside, not a second headline: it says why
+     this scenario never ran, and the verdict above it is still the news. */
+  #cooldownNote{font-size:14px; line-height:1.65; color:var(--ink-2);
+                margin-top:14px; padding-left:13px;
+                border-left:2px solid var(--rule-2); max-width:56ch}
+  #cooldownNote a{color:var(--stamp)}
   .amounts{display:flex; gap:34px; margin-top:22px; flex-wrap:wrap}
   .amounts .k{font-family:var(--mono); font-size:10px; letter-spacing:.14em; color:var(--ink-3); text-transform:uppercase}
   .amounts .v{font-family:var(--mono); font-size:21px; margin-top:5px}
@@ -171,6 +177,12 @@
   @media(max-width:900px){ .cards4{grid-template-columns:1fr} }
   .cards4 .sheet{padding:26px; display:flex; flex-direction:column; gap:10px;
                  width:auto}   /* the receipt .sheet is 420px wide; these are grid cells */
+  /* Same collision, and this one was costing more. The demo's middle panel
+     is a .sheet too, so the receipt's width:min(420px,92vw) pinned it at
+     442px on every screen: its 1fr track collapsed to content, the verdict
+     reason wrapped at four words a line, and a 1920px monitor showed the
+     same cramped column as a 1280px one. */
+  .demo > .sheet{width:auto; min-width:0}
   .cards4 .num{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; color:var(--stamp)}
   .cards4 p{font-size:14px; color:var(--ink-2); line-height:1.6}
 
@@ -649,6 +661,7 @@
         <div class="verdictbox" aria-live="polite">
           <div class="body">
             <p class="reason" id="reason">Choose a scenario on the left to run the checkpoint.</p>
+            <p class="reason" id="cooldownNote" hidden></p>
             <div class="amounts" id="amounts"></div>
           </div>
           <span class="stamp IDLE" id="verdict">READY</span>
@@ -1130,13 +1143,32 @@ async function run(id, btn){
   stamp.className = "stamp " + d.verdict + " fade";
   stamp.textContent = d.verdict.replace("_", "-");
   $("#reason").textContent = d.reason;
+  // A block that came from the ten-minute account cooldown is not this
+  // scenario failing its own checks - it never reached them. Unexplained, that
+  // reads as a broken demo: every scenario after the one that earned the block
+  // returns the same sentence. Say which it is, and show the clock.
+  const cool = r.cooldown;
+  const held = !!(cool && cool.active) && /cooldown/i.test(d.reason || "");
+  const note = $("#cooldownNote");
+  note.hidden = !held;
+  if(held){
+    note.innerHTML = "This scenario never reached its own checks. The account is "
+      + "inside the ten-minute block an earlier scenario earned, so every agent "
+      + "acting for it is stopped first &mdash; that is the block working, not a "
+      + "broken demo. To carry on trying scenarios, press "
+      + "<b>Reset</b> above, or release the account as an operator in the "
+      + "<a href=\"/console\">console</a>.";
+    renderBlockedBar(cool);
+  }
   // A purchase carries who set it in motion, so the same stamp reads "my agent
   // spent" and "I clicked buy" differently. Refundability does not depend on
   // the answer - both stay refundable - but a refund conversation starts with
   // who was driving.
+  // One assignment, not two. A second one below this used to overwrite the
+  // first and silently drop the "initiated by" half, which is the part that
+  // makes the same stamp read "my agent spent" and "I clicked buy" differently.
   $("#stageTitle").textContent = `POST /api/authorize · ${id}`
     + (r.initiated_by === "human" ? " · initiated by human" : " · initiated by AI agent");
-  $("#stageTitle").textContent = `POST /api/authorize · ${id}`;
   $("#stageTime").textContent = `${ms} ms`;
   $("#amounts").innerHTML = `
     <div><div class="k">Cart total</div><div class="v">${esc(r.display.total)}</div></div>
@@ -1401,6 +1433,12 @@ $("#btnTamper").addEventListener("click", async () => {
 });
 $("#btnReset").addEventListener("click", async () => {
   await fetch("/api/reset", {method:"POST"});
+  // The reset clears the cooldown on the server, so the note explaining it is
+  // now false. Clear the bar with it: a countdown still ticking against an
+  // account that is no longer held is the same lie in a different place.
+  $("#cooldownNote").hidden = true;
+  blockKey = "";
+  renderBlockedBar(null);
   loadLedger();
 });
 

@@ -333,7 +333,7 @@ a tight 5:00 without it.
    auto-approves: it fails to STEP_UP and asks the human, and all 22 degraded
    calls in the published run did exactly that. On speed, `eval/latency.py`:
    a refusal a rule settles is **0.2ms at p95**; a cart that reaches the model
-   is **6.1s at p95**, which is slow and is the endpoint rather than the design.
+   is **10.9s at p95**, which is slow and is the endpoint rather than the design.
    Only carts that pass all twelve checks pay it, 300 of 1,000 in that run.
 
 6. **"Why is the cap kept out of the prompt?"** → Because the model re-decided
@@ -370,7 +370,7 @@ a tight 5:00 without it.
 
 The form asks for the track, the project name, the problem statement, the repo
 URL, the video URL, and **what broke and how it was resolved**. That last field
-is a scored parameter, not a formality, and `FAILURES.md` is twenty-one entries
+is a scored parameter, not a formality, and `FAILURES.md` is twenty-two entries
 long. Paste this instead, and link the file.
 
 > Three worth naming, all measured rather than remembered.
@@ -406,7 +406,7 @@ long. Paste this instead, and link the file.
 > Adding a rule to a prompt does not delete a behaviour, it moves it. FAILURES
 > 15, with both measured tables.
 >
-> Full log, twenty-one entries with what I assumed, what it actually was, and
+> Full log, twenty-two entries with what I assumed, what it actually was, and
 > what it cost: [FAILURES.md](FAILURES.md)
 
 ### If they ask why the numbers are not all perfect

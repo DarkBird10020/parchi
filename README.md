@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-323%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-353%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -94,7 +94,7 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python -m pytest tests/ -q    # 144 tests
+python -m pytest tests/ -q    # 353 tests
 python tests/test_attacks.py  # 48 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```
@@ -106,7 +106,7 @@ whichever ran is stamped on every verdict, ledger record and table:
 |:--- |:--- |:--- |
 | `heuristic` | Offline lexical stand-in | Default with no key. Reproducible, no network |
 | `api` | Anthropic `claude-opus-5` | `ANTHROPIC_API_KEY` is set |
-| `openai` | **Any OpenAI-compatible endpoint**, nano-gpt, OpenRouter, Together, local vLLM | `PARCHI_OPENAI_API_KEY` is set |
+| `openai` | **Any OpenAI-compatible endpoint**, ElectronHub, OpenRouter, Together, local vLLM | `PARCHI_OPENAI_API_KEY` is set |
 | `off` | Nothing. Always degrade | The failure you demo on camera |
 
 To use an OpenAI-compatible endpoint (the model defaults to the GLM family and is
@@ -376,21 +376,30 @@ cart refused by a rule never reaches the model:
 
 | Path | p50 | p95 | p99 | Over the 4s budget |
 |:--- |:--- |:--- |:--- |:--- |
-| Refused by a rule (800 calls) | 0.1ms | **0.2ms** | 0.2ms | n/a |
-| Reaches the model (40 calls) | 2.3s | **6.1s** | 7.3s | **10%** |
+| Refused by a rule (240 calls) | 0.2ms | **0.3ms** | 0.3ms | n/a |
+| Reaches the model (12 calls) | 2.8s | **10.9s** | 11.8s | **25%** |
 
-Two things worth saying about that second row rather than hiding it.
+That second row is a small sample on a new provider and it is worse than the
+one it replaced, so it is worth being exact about how it moved. The previous
+endpoint measured 6.1s at p95 over 40 calls with 10% over budget. Twelve calls
+cannot be compared to forty with any confidence, and the first eight of those
+twelve read 3.5s at p95 with nothing over budget — a number this file would
+have been glad to publish and which the next four calls destroyed. The p95 of
+a 12-sample run is its second-slowest call. It is quoted here because it is
+what was measured, not because it is stable.
 
-**6.1 seconds at p95 is slow for a payment**, and it is the endpoint rather
+Two things worth saying about that row rather than hiding it.
+
+**10.9 seconds at p95 is slow for a payment**, and it is the endpoint rather
 than the design: this is a shared inference service on a day it was answering
 in ~2s at the median. The architecture's answer to that is structural, not
 hopeful. Only a cart that has already passed all twelve deterministic checks
 ever pays it, which in the published 1,000-row run was 300 carts of 1,000, and
-the 700 refused by arithmetic were settled in a fifth of a millisecond.
+the 700 refused by arithmetic were settled in a third of a millisecond.
 
 **A call over budget is not an error.** It degrades to `STEP_UP` and the cart
 goes to a human. In the published run 22 of 1,000 calls did that; on the slower
-day above it was 4 of 40. Not one degraded call in either has ever produced an
+day above it was 3 of 12. Not one degraded call in either has ever produced an
 `ALLOW`, which is the property the third verdict exists to guarantee.
 
 ### When the model dies

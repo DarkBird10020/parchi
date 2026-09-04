@@ -392,3 +392,36 @@ def test_the_spoken_script_still_fits_five_minutes():
     note = " ".join(doc[doc.index("### Timing, measured"):].split())
     assert str(words) in note, (
         f"the timing note does not quote the real spoken-word count ({words})")
+
+
+def test_the_readme_states_a_test_count_close_to_the_real_one():
+    """The badge said 323 and the quickstart said 144; there were 353.
+
+    A number that only a human remembers to update is a number that is wrong,
+    and this one was wrong by two hundred in the quickstart of the file a
+    reviewer reads first. The tolerance is deliberate: pinning it exactly would
+    fail on every commit that adds a test, which trains people to edit the
+    number without looking. Drifting by more than a handful is a real claim
+    going stale.
+    """
+    import re
+    import subprocess
+    import sys
+
+    out = subprocess.run(
+        [sys.executable, "-m", "pytest", "--collect-only", "-q",
+         str(ROOT / "tests")],
+        capture_output=True, text=True, cwd=str(ROOT), timeout=300)
+    match = re.search(r"(\d+)\s+tests? collected", out.stdout)
+    if not match:
+        pytest.skip("could not collect the suite to count it")
+    real = int(match.group(1))
+
+    readme = (ROOT / "README.md").read_text(encoding="utf-8")
+    claims = [int(n) for n in re.findall(r"tests-(\d+)%20passing", readme)]
+    claims += [int(n) for n in re.findall(r"pytest tests/ -q\s+#\s*(\d+) tests",
+                                          readme)]
+    assert claims, "the README no longer states a test count anywhere"
+    for claimed in claims:
+        assert abs(claimed - real) <= 10, (
+            f"the README claims {claimed} tests, the suite collects {real}")

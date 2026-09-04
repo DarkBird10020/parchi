@@ -10,7 +10,7 @@ Providers
 api       Claude (`claude-opus-5`) through the Anthropic Messages API. Used
           automatically when ANTHROPIC_API_KEY is set.
 openai    Any OpenAI-compatible `/chat/completions` endpoint, chosen by base
-          URL - nano-gpt, OpenRouter, Together, a local vLLM. The model is
+          URL - ElectronHub, OpenRouter, Together, a local vLLM. The model is
           resolved against the endpoint's live `/models` catalogue, defaulting
           to the GLM family. Used automatically when PARCHI_OPENAI_API_KEY is
           set and no Anthropic key is. See `parchi/openai_provider.py`.

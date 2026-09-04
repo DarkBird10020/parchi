@@ -893,3 +893,63 @@ switching the gate off still beats everything (that is not an outage).
 The generalisable point is the one this file keeps making in different clothes:
 a health indicator that reads configuration instead of outcomes is worse than
 no indicator, because it converts an outage into a green light.
+
+---
+
+### 22. Moving to a new provider: three failures, none of them the HTTP shape
+
+**Where.** `parchi/openai_provider.py` and `parchi/ai_guard.py`, on a move from
+one OpenAI-compatible endpoint to another.
+
+**Found by** switching the repo to a new endpoint and measuring before
+believing anything. The portability claim held exactly as designed - the base
+URL changed and the request shape did not - and then three things broke that
+the shape had nothing to do with.
+
+**What was wrong.**
+
+*One: the token ceiling stopped meaning what it said.* Every model on the new
+endpoint is a reasoning model, and reasoning tokens are spent from `max_tokens`
+before a single character of content is emitted. The adjudicator asked for 300,
+which had been generous for a three-field verdict; the model thought for 52
+tokens and returned an **empty message** with a 200 status. Not a truncated
+answer, not an error - a success carrying nothing. The provider already refused
+to treat an empty message as a verdict (that guard was written for a different
+endpoint doing the same thing), so this degraded correctly and silently.
+
+*Two: the same models were too slow to use, until asked not to think.* A
+one-sentence probe took **58-83 seconds**. Sending `reasoning_effort: "none"`
+brought the same prompt to **6-9 seconds**. The endpoint still returns
+reasoning text, so the parameter is a request rather than a guarantee, but the
+difference is a checkpoint versus a timeout.
+
+*Three: the retry chain was built for a different bill.* The adjudicator asked
+the pinned model twice and only then changed model - three calls to cover one
+failure. The new key is rated at **100 requests per five hours**, so a single
+swarm could spend three percent of the window re-asking a model that was down.
+A retry against the same name covers a dropped socket and nothing else.
+
+**Measured, on the same prompt, before choosing anything:**
+
+| Model | Latency | Used for |
+|---|---|---|
+| `glm-5.3-flash:dev` | 6-18s | both paths, first choice |
+| `deepseek-v4-flash:dev` | 37-60s raw, 3-18s on the real intent prompt | second opinion only |
+
+**Changed.** `reasoning_effort: "none"` on every request; the adjudicator's
+ceiling raised 300 → 900; the retry chain cut from three calls to two and the
+second aimed at a different model family, so one re-ask covers endpoint noise
+and a dead model at once; the hardcoded fallback model name - which pointed at
+a model this endpoint does not offer, and would have burned a call on a
+guaranteed failure - replaced by a named constant. `tests/test_provider_contract.py`
+asserts on the request body itself, because none of this is visible to a test
+that mocks the provider.
+
+**What it cost in the published numbers.** The intent check's p95 went from
+6.1s to **10.9s**, and calls over the 4-second budget from 10% to 25%. That is
+worse, it is in the README, and the way it was nearly not is the part worth
+recording: the first eight calls measured 3.5s at p95 with nothing over budget.
+Eight samples was a number this repo would have been happy to publish. The next
+four moved p95 by seven seconds. The p95 of a twelve-call run is its
+second-slowest call, and a sample small enough to be lucky is small enough to
+be wrong.

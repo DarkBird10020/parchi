@@ -147,7 +147,7 @@ with no rule, no check name and no threshold, and asks it for attacks:
 than summarised. That last number is the only one here I did not mark myself.
 
 **Latency**, since this sits in front of a payment (`eval/latency.py`): a
-refusal a rule settles is 0.2ms at p95; a cart that reaches the model is 6.1s at
+refusal a rule settles is 0.2ms at p95; a cart that reaches the model is 10.9s at
 p95, which is slow and is the endpoint rather than the design. Only carts that
 pass all twelve checks pay it, 300 of 1,000 in the published run, and an
 over-budget call degrades to `STEP_UP` rather than to `ALLOW`.

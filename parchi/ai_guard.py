@@ -50,7 +50,20 @@ from . import openai_provider
 # returned a confidence of 7 on a 0-1 scale. A model that is not answering is
 # not adjudicating, so the default is the one that is measured, available and
 # fast. `PARCHI_GUARD_MODEL` pins any other.
-DEFAULT_GUARD_MODEL = "z-ai/glm-4.7-flash"
+DEFAULT_GUARD_MODEL = "glm-5.3-flash:dev"
+
+# The second opinion, when the first model does not answer. It is a different
+# family on purpose: a retry against the same name covers a dropped socket and
+# nothing else, and the failure this call actually sees is a model that is
+# down. DeepSeek measured 37-60s against GLM's 6-9s on the same prompt, which
+# is why it is the fallback and not the default - off the payment path a slow
+# verdict is still a verdict, but it is not what should answer first.
+FALLBACK_GUARD_MODEL = "deepseek-v4-flash:dev"
+
+# What the fallback is allowed to take. Measured at 37-60s, so 30s would cut
+# off the second opinion more often than not. This is off the payment path
+# entirely; the only cost of waiting is a thread.
+SLOW_MODEL_TIMEOUT = 90.0
 
 # How sure the adjudicator has to be before an account is cooled down. Named
 # here rather than written into the caller, because this number is the price of
@@ -175,17 +188,35 @@ def assess_attack(actor: str, signals: dict[str, Any],
         # clean re-ask is cheaper than losing the judgement to endpoint noise.
         # A fallback model still answers the same question from the same
         # evidence - the tier is a preference, the verdict is the product.
-        attempts = [chosen, chosen]
-        fallback = "z-ai/glm-4.7-flash"
-        if chosen != fallback:
-            attempts.append(fallback)
+        # Two attempts, not three, and the second on a DIFFERENT model. The
+        # old chain asked the pinned model twice and only then changed model,
+        # which spends three calls to cover one failure. On an endpoint rated
+        # at 100 requests per five hours, a single swarm could spend three
+        # percent of the window re-asking a model that is down. Re-asking a
+        # different one covers endpoint noise and a dead model at once.
+        attempts = [chosen]
+        if FALLBACK_GUARD_MODEL != chosen:
+            attempts.append(FALLBACK_GUARD_MODEL)
+        else:
+            attempts.append(chosen)
         d = None
         last_error: Exception | None = None
-        for attempt_model in attempts:
+        for index, attempt_model in enumerate(attempts):
             try:
+                # The fallback gets longer, because it is a slower model and
+                # this call is not in the payment path: it runs on its own
+                # thread after the decision, and what it decides applies to the
+                # NEXT attempt. Nobody is waiting on it, so cutting it off at
+                # the first model's budget would throw away the second opinion
+                # for no benefit to anyone.
+                budget = timeout if index == 0 else max(timeout, SLOW_MODEL_TIMEOUT)
                 d = openai_provider.chat_json_schema(
                     prompt, SCHEMA, ("attack", "confidence", "reason"),
-                    timeout, attempt_model, max_tokens=300,
+                    # 300 was generous for a three-field verdict until the
+                    # endpoint moved to reasoning models, which spend this
+                    # ceiling on thinking before answering: the call came back
+                    # with an empty message, not a short one.
+                    budget, attempt_model, max_tokens=900,
                     name="attack_assessment")
                 chosen = attempt_model
                 break

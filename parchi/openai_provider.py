@@ -4,8 +4,12 @@ Parchi's intent check needs a model that can read a merchant's product title and
 say whether it is what the human asked for. Anthropic is one way to get one. This
 module is the other: any endpoint that speaks the OpenAI `/chat/completions`
 shape, pointed at by a base URL. That covers OpenRouter, Together, Groq, a local
-vLLM or Ollama, and nano-gpt - which is what this repo is developed against,
-because a subscription endpoint makes a 1,000-row batch affordable.
+vLLM or Ollama, and ElectronHub - which is what this repo is developed against,
+because a subscription endpoint makes a 1,000-row batch affordable. Portability
+is not decoration: this repo has now been moved between two such endpoints, and
+what broke in the move was never the HTTP shape, it was the assumptions around
+it - a model catalogue that took 42s, reasoning tokens billed against
+max_tokens, and a request budget an order of magnitude smaller.
 
 Why hand-rolled urllib rather than the `openai` package
 -------------------------------------------------------
@@ -33,7 +37,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-DEFAULT_BASE_URL = "https://nano-gpt.com/api/v1"
+DEFAULT_BASE_URL = "https://api.electronhub.ai/v1"
 
 # Preference order when no model is pinned. GLM is the default family: it is
 # strong enough for a one-sentence judgement, cheap enough to run 1,000 of them,
@@ -41,10 +45,16 @@ DEFAULT_BASE_URL = "https://nano-gpt.com/api/v1"
 # is matched as a prefix against the live catalogue, so a name that has been
 # retired upstream silently falls through to the next one instead of 404-ing.
 PREFERRED_MODELS = (
-    "z-ai/glm-4.7-flash",
-    "z-ai/glm-4.6",
-    "z-ai/glm-4.5",
-    "glm-4-air-0111",
+    # Measured on the endpoint, not chosen by tier. GLM flash answers a
+    # one-sentence judgement in 6-9s here; the DeepSeek and Kimi entries below
+    # took 37-60s for the same prompt, which is why they are last resorts
+    # rather than defaults. See `eval/latency.py` and the table in the README.
+    "glm-5.3-flash:dev",
+    "glm-5.3:dev",
+    "minimax-m2.7:dev",
+    "mimo-v2.5:dev",
+    "kimi-k2.6:dev",
+    "deepseek-v4-flash:dev",
 )
 
 _MODEL_CACHE: list[str] | None = None
@@ -447,6 +457,17 @@ def _request(prompt: str, timeout: float, model: str | None,
         "max_tokens": max_tokens,
         "temperature": 0,
         "response_format": response_format,
+        # Every model on the current endpoint is a reasoning model, and its
+        # reasoning tokens are spent from `max_tokens` before a single
+        # character of content is emitted. A 300-token ceiling that used to be
+        # generous for a one-line verdict now returns an EMPTY message: the
+        # model thought for 52 tokens and had nothing left to answer with.
+        # Asking for no reasoning is a request, not a guarantee - the endpoint
+        # still returned 300-800 characters of it - but it measured 6-9s per
+        # call instead of 58-83s, which is the difference between a checkpoint
+        # and a timeout. An endpoint that does not know the parameter ignores
+        # it; none of the eight tested rejected it.
+        "reasoning_effort": "none",
     }
     data = json.dumps(body).encode()
     headers = {

@@ -281,11 +281,17 @@ def check_patterns(cart: Cart, mandate: IntentMandate | None,
     if drift:
         patterns.append(drift)
 
-    # Suppression guard: a drift alert arriving in the same breath as a hot or
-    # farming alert on the same code is one incident read twice. Keep the code
-    # alert, which names the abuse more precisely, and drop the drift echo.
+    # Suppression guard, narrowed. A drift arriving in the same breath as a
+    # FARMING alert on the same code is one incident read twice: farming
+    # already routes to the gate, so keep it and drop the drift echo. A drift
+    # beside a HOT alert is not an echo. Hot is volume, drift is a code paying
+    # two different sums, and drift is the only one of the two the escalation
+    # gate reads. Dropping it here dropped the cooldown too: an attacker
+    # hammering one code at inflating values went hot on the fifth attempt,
+    # every drift after that was suppressed as a duplicate, and nothing ever
+    # blocked the account. Volume is not a substitute for the block.
     kinds = {p.kind for p in patterns}
-    if "discount_drift" in kinds and ("coupon_hot" in kinds or "coupon_farming" in kinds):
+    if "discount_drift" in kinds and "coupon_farming" in kinds:
         patterns = [p for p in patterns if p.kind != "discount_drift"]
     return patterns
 

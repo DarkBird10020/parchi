@@ -215,6 +215,9 @@ def test_the_console_ships_empty_and_fills_itself_once_signed_in():
     html = _read("demo/console.html")
     assert "/api/console/feed" in html, "the console never fetches its feed"
     assert "X-Parchi-Console-Session" in html, "the console sends no session header"
+    assert 'id="btnHistory"' in html, "the console has no Watch history button"
+    assert "/api/console/watch-history" in html, "Watch history never loads saved sessions"
+    assert 'method:"DELETE"' in html, "employees cannot delete archived sessions"
 
 
 def test_the_hero_states_the_real_number_of_attack_patterns():

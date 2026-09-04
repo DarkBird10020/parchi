@@ -1,6 +1,7 @@
 import hashlib
 import hmac as hmac_mod
 import json
+import threading
 import time
 
 import pytest
@@ -555,6 +556,106 @@ def test_an_acknowledged_critical_stops_being_open(monkeypatch):
     assert any(a["id"] == critical["id"] for a in after["alerts"])
 
 
+def test_watch_history_survives_repeated_clears_and_restart(tmp_path, monkeypatch):
+    alerts_path = tmp_path / "alerts.jsonl"
+    monkeypatch.setattr(server, "ALERTS_PATH", str(alerts_path))
+    monkeypatch.setattr(server, "alerts", [])
+    monkeypatch.setattr(server, "_alerts_loaded", False)
+    monkeypatch.setattr(server, "_current_alert_session", "watch_first")
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    auth = {"X-Parchi-Console-Token": "tok"}
+
+    server.raise_alert("probing", "critical", "first", "first session")
+    first = client.post("/api/console/clear-alerts", headers=auth).json()
+    server.raise_alert("scope_breach", "high", "second", "second session")
+    second = client.post("/api/console/clear-alerts", headers=auth).json()
+
+    assert first["archived_session_id"] != second["archived_session_id"]
+    history = client.get("/api/console/watch-history", headers=auth).json()
+    assert [s["id"] for s in history["sessions"]] == [
+        second["archived_session_id"], first["archived_session_id"]]
+
+    # Simulate fresh process memory. Disk must recover only current session into
+    # the live feed while leaving both prior sessions in Watch history.
+    server.alerts = []
+    server._alerts_loaded = False
+    server._current_alert_session = "discarded"
+    active = client.get("/api/console/feed", headers=auth).json()
+    assert all(a["session_id"] == second["session_id"] for a in active["alerts"])
+    restarted = client.get("/api/console/watch-history", headers=auth).json()
+    assert [s["id"] for s in restarted["sessions"]] == [
+        second["archived_session_id"], first["archived_session_id"]]
+
+
+def test_old_destructive_clear_recovers_blocked_alerts_from_ledger(
+        tmp_path, monkeypatch):
+    alerts_path = tmp_path / "alerts.jsonl"
+    ledger_path = tmp_path / "ledger.jsonl"
+    alerts_path.write_text(json.dumps({
+        "id": "alt_oldclear", "ts": 200, "kind": "alerts_cleared",
+        "severity": "info", "summary": "Alert feed cleared",
+        "detail": "employee@example.com cleared all alerts. The ledger is untouched.",
+        "txn_id": None, "actor": "", "acked": None, "delivered": [],
+    }) + "\n", encoding="utf-8")
+    ledger_path.write_text(json.dumps({
+        "ts": 100, "verdict": "BLOCK", "txn": {"txn_id": "txn_recovered"},
+        "checks": [{"name": "method", "passed": False,
+                    "reason": "card was not authorised"}], "intent": {},
+    }) + "\n", encoding="utf-8")
+    monkeypatch.setattr(server, "ALERTS_PATH", str(alerts_path))
+    monkeypatch.setattr(server, "LEDGER_PATH", str(ledger_path))
+    monkeypatch.setattr(server, "alerts", [])
+    monkeypatch.setattr(server, "_alerts_loaded", False)
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    auth = {"X-Parchi-Console-Token": "tok"}
+
+    history = client.get("/api/console/watch-history", headers=auth).json()
+    assert len(history["sessions"]) == 1
+    recovered = client.get(
+        f"/api/console/watch-history/{history['sessions'][0]['id']}",
+        headers=auth).json()["alerts"]
+    assert recovered[0]["kind"] == "instrument_abuse"
+    assert recovered[0]["txn_id"] == "txn_recovered"
+    assert recovered[0]["delivered"] == ["recovered_from_audit_ledger"]
+
+
+def test_only_an_employee_can_delete_archived_watch_history(tmp_path, monkeypatch):
+    alerts_path = tmp_path / "alerts.jsonl"
+    monkeypatch.setattr(server, "ALERTS_PATH", str(alerts_path))
+    monkeypatch.setattr(server, "alerts", [])
+    monkeypatch.setattr(server, "_alerts_loaded", False)
+    monkeypatch.setattr(server, "_current_alert_session", "watch_delete_me")
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    monkeypatch.setattr(server, "operators", OperatorDirectory(
+        email="employee@example.com", password_hash=hash_password("correct-horse")))
+    server.console_sessions.reset()
+
+    server.raise_alert("probing", "critical", "saved", "delete test")
+    archived = client.post(
+        "/api/console/clear-alerts",
+        headers={"X-Parchi-Console-Token": "tok"}).json()["archived_session_id"]
+
+    assert client.delete(f"/api/console/watch-history/{archived}").status_code == 401
+    assert client.delete(
+        f"/api/console/watch-history/{archived}",
+        headers={"X-Parchi-Console-Token": "tok"}).status_code == 403
+
+    login = client.post("/api/console/login", json={
+        "email": "employee@example.com", "password": "correct-horse"}).json()
+    employee = {"X-Parchi-Console-Session": login["session"]}
+    current = client.get("/api/console/watch-history", headers=employee).json()[
+        "current_session_id"]
+    assert client.delete(
+        f"/api/console/watch-history/{current}", headers=employee).status_code == 409
+
+    deleted = client.delete(
+        f"/api/console/watch-history/{archived}", headers=employee)
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted_by"] == "employee@example.com"
+    assert client.get(
+        f"/api/console/watch-history/{archived}", headers=employee).status_code == 404
+
+
 def test_ack_requires_the_console_and_ignores_unknown_ids(monkeypatch):
     monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
     assert client.post("/api/console/ack", json={"ids": ["alt_nope"]}).status_code == 401
@@ -848,3 +949,223 @@ def test_every_scenario_on_the_page_has_an_expected_verdict_in_ci():
                              workflow.read_text(encoding="utf-8")))
     missing = set(server.SCENARIOS) - covered
     assert not missing, f"scenarios with no expected verdict in CI: {sorted(missing)}"
+
+
+# -------------------------------------------------------------------------- /
+# the agent-mistake net: detect, propose, human approves
+# -------------------------------------------------------------------------- /
+
+def test_an_agent_mistake_is_allowed_then_refund_proposed():
+    """The nightmare case is not the cart a rule can refuse; it is this one.
+
+    The purchase is judged rules-only, so it goes out ALLOW with no intent
+    call in the payment path. The after-purchase review then says no, the
+    alert fires, and the purchase sits in REFUND_PENDING with the proposal
+    attached - awaiting the human, never auto-approved.
+    """
+    started = client.post("/api/authorize", json={"scenario": "agent_mistake"}).json()
+    assert started["state"] == "ALLOW"
+    assert started["initiated_by"] == "ai"
+
+    review = started["intent_review"]
+    assert review is not None and review["match"] is False
+    assert "not something the human asked for" in review["reason"]
+
+    txn_id = started["authorization_id"]
+    record = server.authorizations[txn_id]
+    assert record["state"] == "REFUND_PENDING"
+    assert record["refund"]["proposed_by"] == "ai"
+    assert record["refund"]["status"] == "PENDING"
+    assert started["refund"]["display"] == "Rs 3,699.00"
+
+    kinds = {a["kind"] for a in client.get(
+        "/api/alerts", params={"limit": 40}).json()["alerts"]}
+    assert "agent_intent_mistake" in kinds
+
+
+def test_the_console_sees_the_pending_refund_and_the_operator_approves_it():
+    """Proposal by AI, approval by human, both attributed.
+
+    The feed must carry the proposal regardless of what the alert feed is
+    doing, because a proposal attached to a purchase that already went out
+    stays on the board until someone decides.
+    """
+    started = client.post("/api/authorize", json={"scenario": "agent_mistake"}).json()
+    txn_id = started["authorization_id"]
+
+    server.CONSOLE_TOKEN = "tok"
+    try:
+        feed = client.get("/api/console/feed",
+                          headers={"X-Parchi-Console-Token": "tok"}).json()
+        pending = [r for r in feed["refunds"] if r["txn_id"] == txn_id]
+        assert pending and pending[0]["initiated_by"] == "ai"
+        assert pending[0]["proposed_by"] == "ai"
+
+        # Unauthenticated is refused, like every operator control.
+        assert client.post("/api/console/refund-approve",
+                           json={"txn_id": txn_id}).status_code == 401
+
+        r = client.post("/api/console/refund-approve",
+                        headers={"X-Parchi-Console-Token": "tok"},
+                        json={"txn_id": txn_id})
+        assert r.status_code == 200 and r.json()["state"] == "REFUNDED"
+        assert server.authorizations[txn_id]["state"] == "REFUNDED"
+        assert server.authorizations[txn_id]["refund"]["approved_by"] == "machine-token"
+        assert server.authorizations[txn_id]["refund"]["status"] == "PROCESSING"
+
+        kinds = {a["kind"] for a in client.get(
+            "/api/alerts", params={"limit": 40}).json()["alerts"]}
+        assert "refund_approved" in kinds
+
+        # The board clears once decided.
+        feed = client.get("/api/console/feed",
+                          headers={"X-Parchi-Console-Token": "tok"}).json()
+        assert all(r["txn_id"] != txn_id for r in feed["refunds"])
+    finally:
+        server.CONSOLE_TOKEN = ""
+
+
+def test_a_refund_cannot_be_approved_twice_or_without_a_proposal():
+    """The button only acts on a purchase actually awaiting a refund."""
+    started = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    assert started["state"] == "ALLOW"
+    txn_id = started["authorization_id"]
+
+    server.CONSOLE_TOKEN = "tok"
+    try:
+        # Never proposed: the endpoint must refuse, not mint a refund.
+        assert client.post("/api/console/refund-approve",
+                           headers={"X-Parchi-Console-Token": "tok"},
+                           json={"txn_id": txn_id}).status_code == 409
+    finally:
+        server.CONSOLE_TOKEN = ""
+
+    proposed = client.post("/api/authorize", json={"scenario": "agent_mistake"}).json()
+    ptxn = proposed["authorization_id"]
+    server.CONSOLE_TOKEN = "tok"
+    try:
+        assert client.post("/api/console/refund-approve",
+                           headers={"X-Parchi-Console-Token": "tok"},
+                           json={"txn_id": ptxn}).status_code == 200
+        # Already REFUNDED: a second approval is refused, not a double payout.
+        assert client.post("/api/console/refund-approve",
+                           headers={"X-Parchi-Console-Token": "tok"},
+                           json={"txn_id": ptxn}).status_code == 409
+    finally:
+        server.CONSOLE_TOKEN = ""
+
+
+def test_a_human_initiated_purchase_is_labelled_as_such():
+    """The bifurcation the operator asked for: even a clean purchase carries
+    who set it in motion, so the console and the page never have to guess.
+    """
+    body = client.post("/api/authorize", json={"scenario": "allow"}).json()
+    assert body["initiated_by"] == "ai"  # the demo agent presents the cart
+
+    mandate = new_mandate(
+        "usr_demo", "mrc_bluleaf", ("upi",), 500_000, ("footwear",),
+        "buy running shoes", issued_at=int(time.time()) - 60,
+    )
+    cart = Cart((CartLine("running shoes", "footwear", 420_000),), "upi", "mrc_bluleaf")
+    payload = client.post("/api/authorizations", json={
+        "mandate": mandate.to_dict(), "signature": sign(mandate, server.KEY),
+        "cart": cart.to_dict(),
+    }).json()
+    assert payload["initiated_by"] == "human"
+
+
+def test_a_degraded_review_proposes_nothing(monkeypatch):
+    """The net fails open: a review that could not actually judge the cart
+    must not mint a refund it cannot support, the same way an unavailable
+    adjudicator blocks nobody.
+    """
+    from parchi.intent_match import IntentVerdict
+
+    def degraded(*args, **kwargs):
+        return IntentVerdict(
+            match=False,
+            reason="intent check unavailable (stubbed) - human confirmation required",
+            degraded=True, provider="stub")
+
+    monkeypatch.setattr(server, "intent_matches", degraded)
+    body = client.post("/api/authorize", json={"scenario": "agent_mistake"}).json()
+    assert body["state"] == "ALLOW"
+    assert body["refund"] is None
+    assert server.authorizations[body["authorization_id"]]["state"] == "ALLOW"
+    # The degraded review is still shown, labelled as what it is.
+    assert body["intent_review"]["degraded"] is True
+
+
+# --------------------------------------------------------------------------
+# privilege escalation and extreme autonomous defense
+# --------------------------------------------------------------------------
+
+def test_privilege_escalation_blocks_account_for_ten_minutes_without_ai(
+        monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        server, "assess_attack", lambda *args, **kwargs: calls.append(args))
+
+    body = client.post(
+        "/api/authorize", json={"scenario": "agent_substitution"}).json()
+
+    assert body["decision"]["verdict"] == "BLOCK"
+    held = server.cooldowns.check("usr_demo")
+    assert held.active and 590 <= held.seconds_left <= 600
+    assert calls == [], "default-off autonomous defense spent model tokens"
+
+    alerts = client.get("/api/alerts", params={"limit": 40}).json()["alerts"]
+    privilege = next(a for a in alerts if a["kind"] == "privilege_escalation")
+    assert privilege["severity"] == "critical"
+    assert privilege["actor"] == "usr_demo"
+    assert "10 minutes" in privilege["detail"]
+
+
+def test_cooldown_blocks_the_generic_authorization_api_too():
+    client.post("/api/authorize", json={"scenario": "agent_substitution"})
+    mandate = new_mandate(
+        "usr_demo", "mrc_bluleaf", ("upi",), 500_000, ("footwear",),
+        "buy running shoes", issued_at=int(time.time()) - 60,
+    )
+    cart = Cart(
+        (CartLine("running shoes", "footwear", 420_000),),
+        "upi", "mrc_bluleaf")
+    response = client.post("/api/authorizations", json={
+        "mandate": mandate.to_dict(),
+        "signature": sign(mandate, server.KEY),
+        "cart": cart.to_dict(),
+    })
+    assert response.status_code == 200
+    assert response.json()["decision"]["checks"][-1]["name"] == "account_cooldown"
+
+
+def test_autonomous_defense_is_guarded_and_only_runs_after_an_attack(
+        monkeypatch):
+    monkeypatch.setattr(server, "CONSOLE_TOKEN", "tok")
+    auth = {"X-Parchi-Console-Token": "tok"}
+    called = threading.Event()
+
+    def review(*args, **kwargs):
+        called.set()
+        return None
+
+    monkeypatch.setattr(server, "assess_attack", review)
+
+    assert client.post(
+        "/api/console/autonomous-defense",
+        json={"enabled": True}).status_code == 401
+    enabled = client.post(
+        "/api/console/autonomous-defense", headers=auth,
+        json={"enabled": True})
+    assert enabled.status_code == 200 and enabled.json()["enabled"] is True
+
+    client.post("/api/authorize", json={"scenario": "over_cap"})
+    assert not called.wait(0.05), "ordinary refusal triggered defensive AI"
+
+    client.post("/api/authorize", json={"scenario": "agent_substitution"})
+    assert called.wait(1), "proven privilege attack did not trigger defensive AI"
+
+    feed = client.get("/api/console/feed", headers=auth).json()
+    assert feed["autonomous_defense_enabled"] is True
+    assert any(a["kind"] == "autonomous_defense_enabled"
+               for a in feed["alerts"])

@@ -652,13 +652,16 @@
             <div class="amounts" id="amounts"></div>
           </div>
           <span class="stamp IDLE" id="verdict">READY</span>
-        </div>
-        <div class="toolbar" id="authorizationActions" hidden>
-          <button class="btn primary" id="btnApprove" hidden>Approve step-up</button>
-          <button class="btn primary" id="btnPay" hidden>Pay with Razorpay test mode</button>
+        </div>    <div class="toolbar" id="authorizationActions" hidden>
+      <button class="btn primary" id="btnApprove" hidden>Approve step-up</button>
+      <button class="btn primary" id="btnPay" hidden>Pay with Razorpay test mode</button>
         <button class="btn" id="btnSettle" hidden>Merchant ships the order</button>
-          <span class="dim" id="authorizationStatus" aria-live="polite"></span>
-        </div>
+        <span class="dim" id="authorizationStatus" aria-live="polite"></span>
+      </div>
+      <div class="toolbar" id="refundStrip" hidden>
+        <span class="stamp BLOCK" id="refundBadge" style="font-size:14px;padding:8px 14px">REFUND PENDING</span>
+        <span class="dim" id="refundNote"></span>
+      </div>
         <div class="checks" id="checks"></div>
       </div>
 
@@ -874,16 +877,17 @@ function checkRow(c){
   </div>`;
 }
 
-function intentRow(i){
+function intentRow(i, label){
+  const name = label || "intent_match";
   if(!i) return `<div class="check skip">
-      <span class="ic" aria-hidden="true">-</span><span class="n">intent_match</span>
+      <span class="ic" aria-hidden="true">-</span><span class="n">${name}</span>
       <span class="r">not reached: a rule already settled this one</span></div>`;
   const tag = i.degraded
     ? `<span class="tag" style="border-color:var(--stepup);color:var(--stepup)">DEGRADED</span>`
 : `<span class="tag">${esc(i.provider)}</span>`;
   return `<div class="check ai ${i.match ? "pass" : "fail"}">
     <span class="ic" aria-hidden="true">${i.match ? "✓": "✕"}</span>
-    <span class="n">intent_match${tag}</span>
+    <span class="n">${name}${tag}</span>
     <span class="r">${esc(i.reason)}</span>
   </div>`;
 }
@@ -1126,6 +1130,12 @@ async function run(id, btn){
   stamp.className = "stamp " + d.verdict + " fade";
   stamp.textContent = d.verdict.replace("_", "-");
   $("#reason").textContent = d.reason;
+  // A purchase carries who set it in motion, so the same stamp reads "my agent
+  // spent" and "I clicked buy" differently. Refundability does not depend on
+  // the answer - both stay refundable - but a refund conversation starts with
+  // who was driving.
+  $("#stageTitle").textContent = `POST /api/authorize · ${id}`
+    + (r.initiated_by === "human" ? " · initiated by human" : " · initiated by AI agent");
   $("#stageTitle").textContent = `POST /api/authorize · ${id}`;
   $("#stageTime").textContent = `${ms} ms`;
   $("#amounts").innerHTML = `
@@ -1134,7 +1144,12 @@ async function run(id, btn){
     <div><div class="k">What the human said</div>
       <div class="v said">“${esc(r.mandate.prompt_playback)}”</div></div>`;
   notifyVerdict(id, d);
-  $("#checks").innerHTML = d.checks.map(checkRow).join("") + intentRow(d.intent);
+  const rows = d.checks.map(checkRow).join("") + intentRow(d.intent);
+  // The after-purchase intent review (the agent-mistake net) is not a purchase
+  // check - the money already moved - so it renders as its own row under the
+  // ones that ran before it.
+  const rv = r.intent_review;
+  $("#checks").innerHTML = rows + (rv ? intentRow(rv, "after-purchase intent review") : "");
   $("#evidence").textContent = JSON.stringify(r.evidence, null, 2);
   currentAuthorization = r.authorization_id;
   currentApprovalToken = null;
@@ -1145,6 +1160,17 @@ async function run(id, btn){
   // with the wrong thing in it.
   $("#btnSettle").hidden = r.state !== "ALLOW";
   actions.hidden = $("#btnApprove").hidden && $("#btnPay").hidden && $("#btnSettle").hidden;
+  // The customer is told the money is owed back, and where the decision now
+  // lives. The console is where a human approves it.
+  const strip = $("#refundStrip");
+  if(r.state === "REFUND_PENDING" && r.refund){
+    strip.hidden = false;
+    $("#refundNote").textContent = r.refund.display + " is owed back to you - "
+      + "proposed by the " + (r.refund.proposed_by === "ai" ? "AI review" : "operator")
+      + "; an employee approves the refund from the operations console.";
+  } else {
+    strip.hidden = true;
+  }
   loadLedger();
 }
 

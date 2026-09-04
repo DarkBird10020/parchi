@@ -128,6 +128,11 @@ jobs:
               "quantity_inflation": "BLOCK", "agent_substitution": "BLOCK",
               "wrong_category": "BLOCK",
               "coupon_burst": "BLOCK", "coupon_drift": "BLOCK",
+              # The mistake scenario is ALLOW on purpose: the purchase clears
+              # every rule and goes out (rules-only, no intent call in the
+              # payment path), and the after-purchase review proposes the
+              # refund. The proposal lands on the console, not in this verdict.
+              "agent_mistake": "ALLOW",
               "burst": "ALLOW",
               # The swarm attempt itself passes every deterministic check -
               # that is the whole point of it. The alert fires on top, and the

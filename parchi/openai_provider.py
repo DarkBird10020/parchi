@@ -148,6 +148,68 @@ def reset_budget(limit: int | None = None) -> CallBudget:
     return _BUDGET
 
 
+class CallHealth:
+    """Whether the endpoint is actually answering, as opposed to configured.
+
+    A budget counts calls a process is allowed to make. It says nothing about
+    whether any of them worked, and the two fail in opposite directions: an
+    expired key or an exhausted subscription burns budget on every attempt and
+    returns nothing. The console's defence lamp read the budget and reported
+    "working" through a dead key, because a call that was refused still counted
+    as a call. That is the worst state for an operator to be lied to about.
+
+    Consecutive failures are what matters, not a rate. One timeout in a
+    thousand is weather; four in a row is an endpoint that has stopped
+    answering, and a fifth is not going to be different.
+    """
+
+    def __init__(self) -> None:
+        self.ok_calls = 0
+        self.failed_calls = 0
+        self.consecutive_failures = 0
+        self.last_error: str | None = None
+        self._lock = threading.Lock()
+
+    def record_ok(self) -> None:
+        with self._lock:
+            self.ok_calls += 1
+            self.consecutive_failures = 0
+            self.last_error = None
+
+    def record_failure(self, reason: str) -> None:
+        with self._lock:
+            self.failed_calls += 1
+            self.consecutive_failures += 1
+            self.last_error = redact(str(reason))[:200]
+
+    def snapshot(self) -> dict[str, Any]:
+        with self._lock:
+            return {"ok_calls": self.ok_calls,
+                    "failed_calls": self.failed_calls,
+                    "consecutive_failures": self.consecutive_failures,
+                    "last_error": self.last_error}
+
+
+# Four in a row. Below that a retry is worth having; at that point the caller
+# is being told the truth instead, which is that nothing is being adjudicated.
+UNHEALTHY_AFTER = 4
+
+_HEALTH: CallHealth | None = None
+
+
+def health() -> CallHealth:
+    global _HEALTH
+    if _HEALTH is None:
+        _HEALTH = CallHealth()
+    return _HEALTH
+
+
+def reset_health() -> CallHealth:
+    global _HEALTH
+    _HEALTH = CallHealth()
+    return _HEALTH
+
+
 # --------------------------------------------------------------------------
 # catalogue
 # --------------------------------------------------------------------------
@@ -422,14 +484,21 @@ def _request(prompt: str, timeout: float, model: str | None,
             if _SUPPORTS_JSON_SCHEMA is None and "json_schema" in json.dumps(body):
                 _SUPPORTS_JSON_SCHEMA = True
             payload = json.loads(raw)
+            health().record_ok()
             break
-        except RuntimeError:
+        except RuntimeError as exc:
+            # An HTTP status the endpoint chose to return: 401 on a dead key,
+            # 402 or 429 on an exhausted subscription. Never retried, always
+            # recorded, because this is exactly the shape of failure the
+            # defence lamp used to report as "working".
+            health().record_failure(f"{type(exc).__name__}: {exc}")
             _drop_connection()
             raise
         except Exception as exc:
             transport_failures += 1
             _drop_connection()
             if transport_failures >= 2:
+                health().record_failure(f"{type(exc).__name__}: {exc}")
                 raise RuntimeError(redact(f"{type(exc).__name__}: {exc}")) from None
     return payload["choices"][0]["message"]["content"]
 

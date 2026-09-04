@@ -213,7 +213,8 @@ def test_the_pitch_states_the_real_number_of_failure_entries():
         encoding="utf-8"), re.M))
     text = (ROOT / "docs/pitch-video.md").read_text(encoding="utf-8")
     words = {13: "Thirteen", 14: "Fourteen", 15: "Fifteen", 16: "Sixteen",
-             17: "Seventeen", 18: "Eighteen", 19: "Nineteen", 20: "Twenty"}
+             17: "Seventeen", 18: "Eighteen", 19: "Nineteen", 20: "Twenty",
+             21: "Twenty-one", 22: "Twenty-two"}
     assert entries in words, f"add {entries} to the word map in this test"
     assert re.search(rf"\b({entries}|{words[entries]})\b\s+entries", text, re.I), (
         f"the pitch script does not say {entries} entries, which is how many "
@@ -234,14 +235,16 @@ def test_the_readme_counts_the_behavioural_rows_it_claims():
     from parchi import behavior  # noqa: F401  (imported for the kinds below)
     behavioural = ["purchase_burst", "coupon_hot", "coupon_farming",
                    "discount_drift", "ai_attack", "coupon_abuse_confirmed",
-                   "account_cooled", "cooldown_block"]
+                   "account_cooled", "cooldown_block",
+                   "agent_intent_mistake", "refund_approved"]
     tail = rows[-len(behavioural):]
     for kind in behavioural:
         assert any(kind in row for row in tail), (
             f"`{kind}` is not among the last {len(behavioural)} rows the prose "
             "describes as the second layer")
 
-    words = {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight", 9: "nine"}
+    words = {4: "four", 5: "five", 6: "six", 7: "seven", 8: "eight",
+             9: "nine", 10: "ten", 11: "eleven", 12: "twelve"}
     stated = words[len(behavioural)]
     assert f"last {stated} rows" in readme, (
         f"the README no longer says 'last {stated} rows'; the table has "

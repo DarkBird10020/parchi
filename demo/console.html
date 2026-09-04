@@ -53,6 +53,17 @@
          color:var(--ink-3); padding:3px 10px; border-radius:3px}
   .ctbtn:hover{border-color:var(--ink); color:var(--ink)}
   .ctbtn.off{border-color:var(--stepup); color:var(--stepup)}
+  .ctbtn.danger{border-color:var(--block); color:var(--block); font-weight:700}
+  .dl{cursor:help}
+  .dl.green{color:var(--allow)}
+  .dl.amber{color:var(--stepup)}
+  .dl.red{color:var(--block)}
+  /* Not a synonym for red. Red is a switch an operator threw on purpose;
+     failing is the endpoint refusing while the console still looks normal,
+     so it blinks to be seen without being hovered. */
+  .dl.failing{color:var(--block); font-weight:700; animation:dlpulse 1.1s ease-in-out infinite}
+  @keyframes dlpulse{0%,100%{opacity:1}50%{opacity:.35}}
+  @media(prefers-reduced-motion:reduce){ .dl.failing{animation:none; text-decoration:underline} }
 
   .btn{appearance:none; font-family:var(--mono); border:1px solid var(--ink);
        background:transparent; color:var(--ink); padding:11px 20px; border-radius:3px;
@@ -138,6 +149,26 @@
          background:var(--card-2)}
   .empty{padding:48px 20px; text-align:center; color:var(--ink-3)}
 
+  .history-dialog{width:min(1040px,calc(100vw - 32px)); max-height:88vh; padding:0;
+                  border:1px solid var(--rule-2); background:var(--paper); color:var(--ink);
+                  box-shadow:0 28px 70px rgba(22,19,14,.35)}
+  .history-dialog::backdrop{background:rgba(22,19,14,.52)}
+  .history-head{display:flex; align-items:center; gap:14px; padding:16px 20px;
+                border-bottom:1px solid var(--rule); background:var(--card)}
+  .history-head h2{font-size:21px}
+  .history-layout{display:grid; grid-template-columns:310px 1fr; min-height:460px;
+                  max-height:calc(88vh - 65px)}
+  .history-sessions{overflow-y:auto; border-right:1px solid var(--rule); background:var(--card-2)}
+  .history-session{padding:14px 16px; border-bottom:1px solid var(--rule); cursor:pointer}
+  .history-session:hover,.history-session.selected{background:var(--card)}
+  .history-session .actions{display:flex; gap:7px; margin-top:9px}
+  .history-alerts{overflow-y:auto; background:var(--card)}
+  @media(max-width:720px){
+    .history-layout{grid-template-columns:1fr; max-height:none}
+    .history-sessions{max-height:240px; border-right:0; border-bottom:1px solid var(--rule)}
+    .history-alerts{max-height:48vh}
+  }
+
   .kv{padding:14px 20px; border-bottom:1px solid var(--rule-3)}
   .kv:last-child{border-bottom:0}
   .kv .k{font-family:var(--mono); font-size:10px; letter-spacing:.14em;
@@ -196,10 +227,13 @@
   </nav>
   <div class="band"><div class="wrap" id="bandText">
     <span>Internal &middot; every refusal on this checkpoint</span>
+    <span class="dl" id="defenceLight" title="The protecting AI: green working, red off for maintenance, amber token usage very high">&#9679; defence AI</span>
     <button class="ctbtn" id="btnGate" title="Off: detector alerts continue, no model calls, no automatic cooldowns">AI gate: ON</button>
+    <button class="ctbtn" id="btnAutonomous" title="Always off after restart. Extreme incidents only: AI triages proven privilege attacks but cannot approve or release anything">Autonomous defense: OFF</button>
     <button class="ctbtn" id="btnSound" title="Chime + desktop notification on new criticals">Sound: ON</button>
     <button class="ctbtn" id="btnNag" title="Re-chime every 2 minutes while criticals are unacknowledged">Re-nag: OFF</button>
-    <button class="ctbtn" id="btnClear" title="Empty the alert feed; the ledger and detector state stay">Clear all</button>
+    <button class="ctbtn" id="btnHistory" title="Open alert sessions archived by Clear all">Watch history</button>
+    <button class="ctbtn" id="btnClear" title="Archive this alert session and start a new one">Clear all</button>
     <span class="r" id="updated" style="margin-left:auto">&ndash;</span>
   </div></div>
 
@@ -240,6 +274,10 @@
           <div id="cooldowns"><div class="empty" style="padding:24px 20px">No accounts blocked.</div></div>
         </div>
         <div class="panel" style="margin-bottom:20px">
+          <div class="panelhead">Refund approvals <span class="r" id="refundMeta"></span></div>
+          <div id="refunds"><div class="empty" style="padding:24px 20px">No refunds waiting.</div></div>
+        </div>
+        <div class="panel" style="margin-bottom:20px">
           <div class="panelhead">Audit log</div>
           <div class="kv"><div class="k">Chain</div><div class="v" id="chainState">&ndash;</div></div>
           <div class="kv"><div class="k">Records</div><div class="v" id="chainCount">&ndash;</div></div>
@@ -260,6 +298,19 @@
     </div>
   </div>
 </div>
+
+<dialog id="historyDialog" class="history-dialog" aria-labelledby="historyTitle">
+  <div class="history-head">
+    <div><div class="mono" style="font-size:10px;color:var(--ink-3);text-transform:uppercase;letter-spacing:.14em">Archived alert sessions</div>
+      <h2 id="historyTitle">Watch history</h2></div>
+    <div class="spacer"></div>
+    <button class="btn sm" id="closeHistory" type="button">Close</button>
+  </div>
+  <div class="history-layout">
+    <div class="history-sessions" id="historySessions"></div>
+    <div class="history-alerts" id="historyAlerts"><div class="empty">Select a session to restore its alerts.</div></div>
+  </div>
+</dialog>
 
 <script>
 const $ = (s) => document.querySelector(s);
@@ -283,14 +334,12 @@ async function call(path, options){
   return r.json();
 }
 
-function renderFeed(alerts){
-  const feed = $("#feed");
+function alertRows(alerts, allowAck){
   if(!alerts.length){
-    feed.innerHTML = '<div class="empty">Nothing refused yet. Blocked purchases, '
+    return '<div class="empty">Nothing refused yet. Blocked purchases, '
       + 'a tampered audit log and automatic refunds all arrive here.</div>';
-    return;
   }
-  feed.innerHTML = alerts.map(a => {
+  return alerts.map(a => {
     const when = new Date(a.ts).toLocaleString();
     const isCrit = a.severity === "critical";
     const ack = a.acked || null;
@@ -299,8 +348,8 @@ function renderFeed(alerts){
         ? '<div class="ackwrap"><span class="ackwho">&#10003; acknowledged '
           + esc(ack.by) + ' &middot; ' + esc(new Date(ack.ts).toLocaleTimeString())
           + '</span></div>'
-        : '<div class="ackwrap"><button class="ackbtn" data-ack="' + esc(a.id)
-          + '">Mark seen</button></div>');
+        : (allowAck ? '<div class="ackwrap"><button class="ackbtn" data-ack="' + esc(a.id)
+          + '">Mark seen</button></div>' : ''));
     // Who the pattern is about, named the way a handover needs it: the
     // account email when the payer has one, the agent id otherwise.
     const who = a.actor_name
@@ -321,6 +370,78 @@ function renderFeed(alerts){
       + '</div></div>';
   }).join("");
 }
+
+function renderFeed(alerts){
+  $("#feed").innerHTML = alertRows(alerts, true);
+}
+
+let selectedHistorySession = "";
+
+async function showHistorySession(id){
+  selectedHistorySession = id;
+  document.querySelectorAll(".history-session").forEach(el =>
+    el.classList.toggle("selected", el.dataset.session === id));
+  $("#historyAlerts").innerHTML = '<div class="empty">Loading alerts...</div>';
+  const data = await call("/api/console/watch-history/" + encodeURIComponent(id));
+  if(selectedHistorySession === id){
+    $("#historyAlerts").innerHTML = alertRows(data.alerts, false);
+  }
+}
+
+async function loadWatchHistory(){
+  const data = await call("/api/console/watch-history");
+  const sessions = data.sessions || [];
+  $("#historySessions").innerHTML = sessions.length ? sessions.map(s => {
+    const when = new Date(s.closed_at || s.started_at).toLocaleString();
+    const critical = (s.by_severity || {}).critical || 0;
+    return '<div class="history-session" data-session="' + esc(s.id) + '">'
+      + '<div class="top"><span class="kind">' + esc(when) + '</span></div>'
+      + '<div class="det">' + s.alert_count + ' alerts'
+      + (critical ? ' &middot; ' + critical + ' critical' : '') + '</div>'
+      + '<div class="meta">cleared by ' + esc(s.closed_by || "unknown") + '</div>'
+      + '<div class="actions"><button class="ackbtn" data-history-open="' + esc(s.id)
+      + '">View</button><button class="ackbtn" data-history-delete="' + esc(s.id)
+      + '">Delete</button></div></div>';
+  }).join("") : '<div class="empty">No cleared watch sessions yet.</div>';
+  if(sessions.length) await showHistorySession(sessions[0].id);
+  else $("#historyAlerts").innerHTML = '<div class="empty">Cleared sessions will remain here after restart.</div>';
+}
+
+$("#btnHistory").addEventListener("click", async () => {
+  $("#historyDialog").showModal();
+  try { await loadWatchHistory(); }
+  catch(err){
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+    else $("#historyAlerts").innerHTML = '<div class="empty">History unavailable.</div>';
+  }
+});
+$("#closeHistory").addEventListener("click", () => $("#historyDialog").close());
+
+document.addEventListener("click", async (e) => {
+  const open = e.target.closest("[data-history-open]");
+  if(open){ await showHistorySession(open.dataset.historyOpen); return; }
+  const del = e.target.closest("[data-history-delete]");
+  if(!del) return;
+  if(del.dataset.armed !== "1"){
+    del.dataset.armed = "1";
+    del.textContent = "Really delete?";
+    setTimeout(() => {
+      if(del.isConnected){ del.dataset.armed = ""; del.textContent = "Delete"; }
+    }, 4000);
+    return;
+  }
+  del.disabled = true;
+  try {
+    await call("/api/console/watch-history/" + encodeURIComponent(del.dataset.historyDelete),
+               {method:"DELETE"});
+    selectedHistorySession = "";
+    await loadWatchHistory();
+    refresh();
+  } catch(err){
+    del.disabled = false;
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  }
+});
 
 // Acknowledging is attribution, not deletion: the row stays, dimmed, with who
 // saw it and when, so a handover can prove a person looked.
@@ -356,6 +477,7 @@ let soundOn = sessionStorage.getItem("parchi.console.sound") !== "off";
 let nagOn = sessionStorage.getItem("parchi.console.nag") === "on";
 // Server state for the AI gate, mirrored onto the band button from the feed.
 let lastGate = true;
+let lastAutonomous = false;
 
 function chime(){
   if(!soundOn) return;   // muted is a choice, honoured before the oscillator
@@ -427,7 +549,9 @@ function announceNewCriticals(alerts){
 const CRITICAL_KINDS = new Set(["mandate_forgery","payee_substitution",
   "agent_impersonation","prompt_injection","ledger_tampered","probing",
   "discount_abuse","price_manipulation","console_lockout","coupon_farming",
-  "ai_attack","account_cooled","cooldown_block"]);
+  "agent_swarm","coupon_abuse_confirmed","agent_intent_mistake",
+  "ai_attack","account_cooled","cooldown_block","privilege_escalation",
+  "autonomous_defense_enabled","autonomous_review"]);
 const QUIET_KINDS = new Set(["expired_mandate", "ai_cleared"]);
 
 // Accounts the AI adjudicator has cooled down, each with the human release.
@@ -443,9 +567,13 @@ function renderCooldowns(cooldowns){
   box.innerHTML = keys.map(k => {
     const c = cooldowns[k];
     const mins = Math.ceil(c.seconds_left / 60);
-    const ai = c.assessment ? esc(c.assessment.reason) + ' <span class="ackwho">['
-      + esc(c.assessment.model) + ' · ' + Math.round(c.assessment.confidence * 100)
-      + '% confident]</span>' : esc(c.reason);
+    const assessed = c.assessment || null;
+    const tag = assessed && assessed.model
+      ? ' <span class="ackwho">[' + esc(assessed.model) + ' · '
+        + Math.round(assessed.confidence * 100) + '% confident]</span>'
+      : (assessed && assessed.decided_by === "rules"
+        ? ' <span class="ackwho">[rules]</span>' : '');
+    const ai = esc((assessed && assessed.reason) || c.reason) + tag;
     return '<div class="row critical"><div class="top">'
       + '<span class="sev critical">cooled</span><span class="kind">' + esc(k) + '</span>'
       + '<span class="when">' + mins + ' min left</span></div>'
@@ -463,6 +591,48 @@ document.addEventListener("click", async (e) => {
     await call("/api/console/release", {method:"POST",
       headers:{"content-type":"application/json"},
       body: JSON.stringify({account: btn.dataset.release})});
+    refresh();
+  } catch(err){
+    btn.disabled = false;
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  }
+});
+
+// Refund proposals. The AI review can name a purchase that should not have
+// gone out, but the money is the customer's, so an employee approves the
+// return of it - the same propose/approve split as the cooldown and the
+// step-up. Each card shows who started the purchase, so "the agent did it"
+// and "the human clicked it" read differently on the same board.
+function renderRefunds(refunds){
+  const box = $("#refunds");
+  const n = (refunds || []).length;
+  $("#refundMeta").textContent = n ? n + " awaiting approval" : "";
+  if(!n){
+    box.innerHTML = '<div class="empty" style="padding:24px 20px">No refunds waiting.</div>';
+    return;
+  }
+  box.innerHTML = refunds.map(r => {
+    const who = r.initiated_by === "ai" ? "AI agent" : "human";
+    const by = r.proposed_by === "ai" ? "AI review" : "operator";
+    return '<div class="row critical"><div class="top">'
+      + '<span class="sev critical">refund</span><span class="kind">' + esc(r.txn_id) + '</span>'
+      + '<span class="when">proposed by ' + esc(by) + '</span></div>'
+      + '<div class="sum">' + esc(r.display) + ' to ' + esc(r.payer) + '</div>'
+      + '<div class="det">' + esc(r.reason) + '</div>'
+      + '<div class="ackwrap"><button class="ackbtn" data-refund="' + esc(r.txn_id)
+      + '">Approve refund</button><span class="ackwho">purchase initiated by '
+      + esc(who) + '</span></div></div>';
+  }).join("");
+}
+
+document.addEventListener("click", async (e) => {
+  const btn = e.target.closest("[data-refund]");
+  if(!btn || !session) return;
+  btn.disabled = true;
+  try {
+    await call("/api/console/refund-approve", {method:"POST",
+      headers:{"content-type":"application/json"},
+      body: JSON.stringify({txn_id: btn.dataset.refund})});
     refresh();
   } catch(err){
     btn.disabled = false;
@@ -490,6 +660,38 @@ function renderGate(){
   b.classList.toggle("off", !lastGate);
 }
 
+function renderAutonomous(){
+  const b = $("#btnAutonomous");
+  b.textContent = "Autonomous defense: " + (lastAutonomous ? "ON" : "OFF");
+  b.classList.toggle("danger", lastAutonomous);
+}
+
+// The protecting AI's own light, read from the server so it can never lie:
+// green working, red off for maintenance (gate), amber token usage very high.
+// This lamp covers the normal defensive gate. Autonomous incident triage has
+// its own deliberately separate, default-off control beside it.
+function renderDefence(defence){
+  const el = $("#defenceLight");
+  const d = defence || {state: (lastGate ? "green" : "red")};
+  el.className = "dl " + d.state;
+  const words = {green: "working", red: "off for maintenance",
+                 amber: "token usage very high",
+                 failing: "NOT ANSWERING - key or credit"};
+  let extra = "";
+  if(d.state === "amber" && d.calls_limit)
+    extra = " (" + d.calls_used + "/" + d.calls_limit + " model calls)";
+  // A failing endpoint has to say so on the lamp itself, not only in a
+  // tooltip nobody hovers: the detectors still alert, so the page otherwise
+  // looks entirely normal while nothing is being adjudicated.
+  if(d.state === "failing")
+    extra = " (" + d.consecutive_failures + " calls in a row failed"
+          + (d.last_error ? ": " + d.last_error : "") + ")";
+  el.textContent = (d.state === "failing")
+    ? "● defence AI NOT ANSWERING" : "● defence AI";
+  el.title = "Defence AI " + words[d.state] + extra
+    + ". Autonomous incident triage is controlled separately.";
+}
+
 function renderSound(){
   $("#btnSound").textContent = "Sound: " + (soundOn ? "ON" : "OFF");
   $("#btnSound").classList.toggle("off", !soundOn);
@@ -500,7 +702,7 @@ function renderNag(){
   $("#btnNag").classList.toggle("off", !nagOn);
 }
 
-function renderToggles(){ renderGate(); renderSound(); renderNag(); }
+function renderToggles(){ renderGate(); renderAutonomous(); renderSound(); renderNag(); }
 
 $("#btnGate").addEventListener("click", async () => {
   try {
@@ -511,6 +713,35 @@ $("#btnGate").addEventListener("click", async () => {
     renderGate();
   } catch(err){
     if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  }
+});
+
+$("#btnAutonomous").addEventListener("click", async (e) => {
+  const btn = e.currentTarget;
+  if(!lastAutonomous && btn.dataset.armed !== "1"){
+    btn.dataset.armed = "1";
+    btn.textContent = "Warning: AI works alone. Enable?";
+    btn.classList.add("danger");
+    setTimeout(() => {
+      if(btn.isConnected && btn.dataset.armed === "1"){
+        btn.dataset.armed = "";
+        renderAutonomous();
+      }
+    }, 6000);
+    return;
+  }
+  btn.dataset.armed = "";
+  btn.disabled = true;
+  try {
+    const r = await call("/api/console/autonomous-defense", {method:"POST",
+      headers:{"content-type":"application/json"},
+      body: JSON.stringify({enabled: !lastAutonomous})});
+    lastAutonomous = !!r.enabled;
+  } catch(err){
+    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+  } finally {
+    btn.disabled = false;
+    renderAutonomous();
   }
 });
 
@@ -584,8 +815,12 @@ async function refresh(){
     // The AI gate is server state; mirror it so the button never lies, even
     // if another operator (or another tab) flipped it.
     lastGate = !!d.ai_gate_enabled;
+    lastAutonomous = !!d.autonomous_defense_enabled;
     renderGate();
+    renderAutonomous();
+    renderDefence(d.defence);
     renderCooldowns(d.cooldowns || {});
+    renderRefunds(d.refunds || []);
     $("#feedMeta").textContent = d.counts.total + " shown";
     $("#updated").textContent = new Date(d.server_time).toLocaleTimeString();
     $("#who").textContent = d.operator;

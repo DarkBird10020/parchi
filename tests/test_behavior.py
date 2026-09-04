@@ -120,7 +120,30 @@ def test_matching_claims_never_drift():
     assert watcher.observe_claimed_value("SAVE10", 10_000) is None
 
 
-def test_check_patterns_suppresses_drift_when_a_code_alert_fired():
+def test_check_patterns_suppresses_drift_when_farming_fired():
+    """A drift arriving in the same breath as a FARMING alert is one incident
+    read twice: farming already routes to the escalation gate, so the echo is
+    dropped and the console hears about the incident once."""
+    burst = BurstDetector(threshold=99, window_seconds=60)
+    watcher = CouponWatcher(hot_threshold=99, hot_window_seconds=120,
+                            max_mandates_per_code=2)
+    watcher.observe(_cart("SAVE10", 10_000), _mandate())
+    patterns = check_patterns(_cart("SAVE10", 90_000), _mandate(), burst,
+                              watcher, "BLOCK")
+    kinds = [p.kind for p in patterns]
+    assert "coupon_farming" in kinds
+    assert "discount_drift" not in kinds  # suppressed: one incident, one alert
+
+
+def test_a_hot_code_that_also_drifts_still_names_the_drift():
+    """Volume is not a substitute for the block.
+
+    Hot is volume, drift is a code paying two different sums, and drift is the
+    only one of the two the escalation gate reads. While drift was suppressed
+    beside a hot alert, an attacker hammering one code at inflating values went
+    hot on the fifth attempt and was never blocked: the drift that would have
+    cooled the account was dropped as a 'duplicate' on the only attempt where
+    it fired in the same breath as the hot alert."""
     burst = BurstDetector(threshold=99, window_seconds=60)
     watcher = CouponWatcher(hot_threshold=3, hot_window_seconds=120,
                             max_mandates_per_code=99)
@@ -130,7 +153,7 @@ def test_check_patterns_suppresses_drift_when_a_code_alert_fired():
                               watcher, "BLOCK")
     kinds = [p.kind for p in patterns]
     assert "coupon_hot" in kinds
-    assert "discount_drift" not in kinds  # suppressed: one incident, one alert
+    assert "discount_drift" in kinds  # both stand: one is volume, one is the block
 
 
 # -------------------------------------------------------------------------- /

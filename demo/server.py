@@ -39,7 +39,7 @@ from parchi.checks import CheckResult, NonceStore, run_all
 from parchi.cooldown import COOLDOWN_SECONDS, CooldownStore, detect_swarm
 from parchi.engine import ALLOW, BLOCK, STEP_UP, Decision, Engine
 from parchi.evidence import build_pack
-from parchi.intent_match import resolve_provider
+from parchi.intent_match import intent_matches, resolve_provider
 from parchi.ledger import Ledger, verify_chain
 from parchi.mandate import (
     MAX_CART_LINES,
@@ -56,7 +56,7 @@ from parchi.openai_provider import load_dotenv
 from parchi.operators import OperatorDirectory, SessionStore
 from parchi.pricing import Coupon, CouponBook, PriceBook
 from parchi.razorpay import RazorpayClient, RazorpayError
-from parchi.threat import CRITICAL, ProbeDetector, classify
+from parchi.threat import CRITICAL, ProbeDetector, classify, looks_like_injection
 from parchi.users import UserDirectory
 
 load_dotenv()
@@ -203,6 +203,98 @@ ALERT_WEBHOOK = os.environ.get("PARCHI_ALERT_WEBHOOK", "").strip()
 MAX_ALERTS_IN_MEMORY = 200
 alerts: list[dict[str, Any]] = []
 _alerts_loaded = False
+LEGACY_ALERT_SESSION = "watch_legacy"
+_current_alert_session = "watch_" + uuid.uuid4().hex[:10]
+
+
+def read_alert_records() -> list[dict[str, Any]]:
+    """Read every complete alert record, including archived watch sessions."""
+    if not os.path.exists(ALERTS_PATH):
+        return []
+    records = []
+    try:
+        with open(ALERTS_PATH, encoding="utf-8") as f:
+            for line in f:
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                record.setdefault("session_id", LEGACY_ALERT_SESSION)
+                records.append(record)
+    except OSError:
+        pass
+    return records
+
+
+def recover_destructive_clear(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Recover alerts erased by the pre-history Clear all implementation.
+
+    Old builds left only an `Alert feed cleared` marker. The audit ledger was
+    deliberately untouched, so blocked transaction alerts can be reconstructed
+    once and archived. New session markers carry `previous_session_id` and never
+    enter this migration.
+    """
+    if len(records) != 1:
+        return records
+    marker = records[0]
+    if (marker.get("kind") != "alerts_cleared"
+            or marker.get("summary") != "Alert feed cleared"
+            or marker.get("previous_session_id")):
+        return records
+
+    recovered = []
+    try:
+        with open(LEDGER_PATH, encoding="utf-8") as ledger:
+            for line in ledger:
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if (entry.get("ts", 0) > marker.get("ts", 0)
+                        or entry.get("verdict") != BLOCK):
+                    continue
+                threat = classify(
+                    entry["verdict"], entry.get("checks", []),
+                    entry.get("intent") or None)
+                if threat is None:
+                    continue
+                txn_id = entry.get("txn", {}).get("txn_id")
+                recovered.append({
+                    "id": "alt_recovered_" + str(txn_id or entry["ts"])[-10:],
+                    "session_id": "watch_recovered_" + marker["id"][-10:],
+                    "ts": entry["ts"],
+                    "kind": threat.kind,
+                    "severity": threat.severity,
+                    "summary": threat.summary,
+                    "detail": threat.detail,
+                    "txn_id": txn_id,
+                    "actor": "",
+                    "acked": None,
+                    "delivered": ["recovered_from_audit_ledger"],
+                })
+    except OSError:
+        return records
+    if not recovered:
+        return records
+
+    recovered_session = recovered[0]["session_id"]
+    marker = dict(marker)
+    marker["session_id"] = "watch_" + marker["id"][-10:]
+    marker["previous_session_id"] = recovered_session
+    marker["cleared_by"] = marker.get("detail", "unknown").split(
+        " cleared all alerts.", 1)[0]
+    migrated = [*recovered, marker]
+    tmp = ALERTS_PATH + ".tmp"
+    try:
+        with open(tmp, "w", encoding="utf-8") as out:
+            for record in migrated:
+                out.write(json.dumps(record) + "\n")
+        os.replace(tmp, ALERTS_PATH)
+    except OSError:
+        with contextlib.suppress(OSError):
+            os.remove(tmp)
+        return records
+    return migrated
 
 
 def load_alerts() -> None:
@@ -213,24 +305,19 @@ def load_alerts() -> None:
     `acked` field read as unacknowledged, because a human never saw something
     the previous process could not record.
     """
-    global _alerts_loaded
+    global _alerts_loaded, _current_alert_session
     if _alerts_loaded:
         return
     _alerts_loaded = True
-    if not os.path.exists(ALERTS_PATH):
+    records = recover_destructive_clear(read_alert_records())
+    if not records:
         return
-    try:
-        with open(ALERTS_PATH, encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    alerts.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-    except OSError:
-        pass
+    _current_alert_session = records[-1]["session_id"]
+    alerts.extend(
+        record for record in records
+        if record["session_id"] == _current_alert_session
+    )
+    del alerts[:-MAX_ALERTS_IN_MEMORY]
 
 
 def raise_alert(kind: str, severity: str, summary: str, detail: str,
@@ -244,19 +331,20 @@ def raise_alert(kind: str, severity: str, summary: str, detail: str,
     answers "who was doing this?" and not just "what happened?".
     """
     load_alerts()
-    alert = {
-        "id": "alt_" + uuid.uuid4().hex[:10],
-        "ts": int(time.time() * 1000),
-        "kind": kind,
-        "severity": severity,          # critical | high | info
-        "summary": summary,
-        "detail": detail,
-        "txn_id": txn_id,
-        "actor": actor or "",          # who it was about, resolved for display
-        "acked": None,                 # who saw it, once someone says they did
-        "delivered": [],
-    }
     with state_lock:
+        alert = {
+            "id": "alt_" + uuid.uuid4().hex[:10],
+            "session_id": _current_alert_session,
+            "ts": int(time.time() * 1000),
+            "kind": kind,
+            "severity": severity,      # critical | high | info
+            "summary": summary,
+            "detail": detail,
+            "txn_id": txn_id,
+            "actor": actor or "",      # resolved to a display name on read
+            "acked": None,             # who saw it, once acknowledged
+            "delivered": [],
+        }
         alerts.append(alert)
         # An unbounded list is a memory leak wearing a feature's clothes. The
         # file keeps the full history; memory keeps the tail.
@@ -304,9 +392,10 @@ bursts = BurstDetector(threshold=8, window_seconds=60)
 coupon_watch = CouponWatcher(hot_threshold=5, hot_window_seconds=120,
                              max_mandates_per_code=12)
 
-# Automatic cooldown. Triggered only by the AI adjudicator's verdict on the two
-# never-accidental patterns (rebuilt attempts, agent swarms), released early
-# only by the operator. Enforced as a deterministic block before the engine runs.
+# Automatic cooldown. Three shapes earn it by two routes: coupon drift and
+# coupon farming are settled by counting (`coupon_verdict`, no model call), the
+# agent swarm is sent to the AI adjudicator. Released early only by the
+# operator. Enforced as a deterministic block before the engine runs.
 cooldowns = CooldownStore(cooldown_seconds=COOLDOWN_SECONDS)
 # payer_id -> agent ids that presented its slips, for swarm detection.
 swarm_seen: dict[str, set[str]] = {}
@@ -340,6 +429,53 @@ def release_adjudication(payer_id: str) -> None:
 # being raised by the deterministic detectors either way, only the model call
 # and the automatic cooldown stop. Turned back on with the same endpoint.
 ai_gate_enabled = True
+
+# Extreme-incident handover. Off on every process start by design. When an
+# operator enables it, the model performs incident triage only after rules have
+# already proved a privilege-escalation attempt. It cannot approve or release
+# anything, and normal traffic spends no model tokens on this feature.
+autonomous_defense_enabled = False
+
+
+def defence_status() -> dict[str, Any]:
+    """One light for the protecting AI, always on the console band.
+
+    green   = the defence AI is working (adjudicator on, calls succeeding)
+    red     = off for maintenance (the AI gate), detectors still alerting
+    failing = on, but the endpoint is refusing: a dead key, or credit spent
+    amber   = on and answering, but token usage is very high (>= 80%)
+
+    `failing` exists because the first three did not distinguish "configured"
+    from "working". The budget counts calls a process is ALLOWED to make, and
+    a call refused for an expired key still spends one, so an exhausted
+    subscription used to drive this lamp green while every adjudication
+    silently returned nothing. The console says the lamp is read from the
+    server so it can never lie; that was only true of the gate.
+
+    Health is checked before budget: an endpoint that is not answering is a
+    worse fact than one that is answering a lot, and it is the one an operator
+    has to act on.
+
+    The budget is the process-wide one the intent check also spends from,
+    because the operator pays one bill for every model call, whichever
+    layer made it.
+    """
+    b = openai_provider.budget()
+    h = openai_provider.health()
+    snap = h.snapshot()
+    if not ai_gate_enabled:
+        state = "red"
+    elif snap["consecutive_failures"] >= openai_provider.UNHEALTHY_AFTER:
+        state = "failing"
+    elif b.limit and b.used >= 0.8 * b.limit:
+        state = "amber"
+    else:
+        state = "green"
+    return {"state": state, "calls_used": b.used, "calls_limit": b.limit,
+            "ok_calls": snap["ok_calls"], "failed_calls": snap["failed_calls"],
+            "consecutive_failures": snap["consecutive_failures"],
+            "last_error": snap["last_error"]}
+
 
 # Three registered agent identities for the swarm scenario. They are real
 # registered credentials on purpose: a swarm is not an unregistered agent (the
@@ -384,6 +520,14 @@ ESCALATIONS: dict[str, tuple[str, str, str]] = {
         "one discount code spent across many mandates"),
 }
 
+# Forging a payer's mandate or assuming another agent's identity is an attempt
+# to gain authority the payer never granted. Cryptographic checks settle these
+# cases; model opinion is not needed to impose the block.
+PRIVILEGE_ESCALATION_KINDS = frozenset({
+    "mandate_forgery",
+    "agent_impersonation",
+})
+
 
 def adjudicate(actor: str, payer_id: str, signals: dict[str, Any],
                txn_id: str, reason: str) -> None:
@@ -413,7 +557,7 @@ def adjudicate(actor: str, payer_id: str, signals: dict[str, Any],
 
 
 def _adjudicate(actor: str, payer_id: str, signals: dict[str, Any],
-                txn_id: str, reason: str) -> None:
+                 txn_id: str, reason: str) -> None:
     shape = str(signals.get("pattern", "pattern")).replace("_", " ")
     assessment = assess_attack(actor, signals, timeout=30.0)
     if assessment is None:
@@ -444,6 +588,32 @@ def _adjudicate(actor: str, payer_id: str, signals: dict[str, Any],
         txn_id=txn_id, actor=payer_id)
 
 
+def review_privilege_escalation(actor: str, payer_id: str,
+                                signals: dict[str, Any], txn_id: str) -> None:
+    """Autonomous incident triage, never an authorization decision."""
+    try:
+        assessment = assess_attack(actor, signals, timeout=30.0)
+        if assessment is None:
+            raise_alert(
+                "autonomous_review_degraded", "high",
+                "Autonomous privilege-escalation review could not complete",
+                "The deterministic ten-minute block remains active. No model "
+                "verdict was used and an operator must review this incident.",
+                txn_id=txn_id, actor=payer_id)
+            return
+        raise_alert(
+            "autonomous_review", CRITICAL if assessment.attack else "high",
+            f"Autonomous review {'confirmed' if assessment.attack else 'questioned'} "
+            f"the privilege escalation ({assessment.confidence:.0%})",
+            f"{assessment.reason} [model {assessment.model}]. The deterministic "
+            "ten-minute block remains active; AI cannot release it.",
+            txn_id=txn_id, actor=payer_id)
+    except Exception as exc:
+        print(f"autonomous review for {payer_id} failed: {exc!r}", file=sys.stderr)
+    finally:
+        release_adjudication(payer_id)
+
+
 def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
                   txn_id: str | None = None) -> dict[str, Any] | None:
     """Name what was attempted, and tell the service about it.
@@ -465,11 +635,53 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
                     txn_id=txn_id, actor=actor)
         raised = {**threat.to_dict(), "attempts_in_window": 0}
 
+        # Privilege escalation is settled by cryptographic checks, not model
+        # opinion. Block immediately and notify the console. Optional model
+        # triage starts only for this hostile event, never for normal traffic.
+        if threat.kind in PRIVILEGE_ESCALATION_KINDS and cart.agent_id:
+            reason = f"AI agent privilege escalation: {threat.kind}"
+            held = cooldowns.trigger(
+                mandate.payer_id, reason,
+                {"decided_by": "rules", "reason": threat.summary,
+                 "threat": threat.kind})
+            raise_alert(
+                "privilege_escalation", CRITICAL,
+                f"AI agent '{cart.agent_id}' attempted privilege escalation",
+                f"{threat.summary}. Account '{mandate.payer_id}' was blocked "
+                f"for {held.seconds_left // 60} minutes and the console was "
+                "notified immediately. Cryptographic rules imposed the block; "
+                "no defensive-AI tokens were required.",
+                txn_id=txn_id, actor=mandate.payer_id)
+            raise_alert(
+                "account_cooled", CRITICAL,
+                f"Account '{mandate.payer_id}' blocked for "
+                f"{held.seconds_left // 60} minutes",
+                f"Reason: {reason}. An operator can release this early in the "
+                "console; autonomous AI cannot release it.",
+                txn_id=txn_id, actor=mandate.payer_id)
+
+            if (autonomous_defense_enabled and ai_gate_enabled
+                    and claim_adjudication(mandate.payer_id)):
+                signals = {
+                    "pattern": "privilege_escalation",
+                    "deterministic_threat": threat.kind,
+                    "failed_check_detail": threat.detail[:160],
+                    "verdict_this_attempt": decision.verdict,
+                    "agent_id": cart.agent_id,
+                    "cart_lines": [ln.description for ln in cart.lines],
+                    "human_asked_for": mandate.prompt_playback[:160],
+                }
+                review_txn = txn_id or "unknown"
+                threading.Thread(
+                    target=review_privilege_escalation,
+                    args=(cart.agent_id, mandate.payer_id, signals, review_txn),
+                    name="autonomous-review-" + review_txn,
+                    daemon=True).start()
+
     # And separately: is this the fifth attempt in a minute rather than the
     # first? Every individual verdict here was correct and no money moved, which
     # is exactly why nobody would otherwise notice. Refused attempts only - the
     # allowed-but-fast case is the burst detector's, which counts everything.
-    # Refused attempts only - the allowed-but-fast case is the burst detector's.
     # (The actor key includes the agent face, the alert names the account.)
     actor = cart.agent_id or mandate.payer_id or "unknown"
     count = probes.record(actor) if decision.verdict == BLOCK else 0
@@ -482,6 +694,29 @@ def report_threat(decision: Decision, cart: Cart, mandate: IntentMandate,
             txn_id=txn_id,
             actor=mandate.payer_id or actor,
         )
+
+    # Payee substitution, escalated by repetition. One attempt is refused and
+    # reported. The same agent trying it again and again is not shopping: each
+    # refusal was correct and the account keeps coming back, so from the
+    # threshold up the account itself is held for the cooldown's ten minutes,
+    # the user is told through the cooldown state the page already polls, and
+    # the operator sees it on the release panel like every other held account.
+    if (threat is not None and threat.kind == "payee_substitution"
+            and probes.is_probing(count)
+            and not cooldowns.check(mandate.payer_id).active):
+        held = cooldowns.trigger(
+            mandate.payer_id, "repeated payee substitution attempts",
+            {"decided_by": "rules", "refused_attempts_in_window": count})
+        if count == probes.threshold:
+            raise_alert(
+                "payee_substitution_blocked", CRITICAL,
+                f"Account '{mandate.payer_id}' blocked for "
+                f"{held.seconds_left // 60} minutes: repeated payee substitution",
+                f"{count} refused payee substitution attempts in under a minute "
+                "from the AI agent on this account. Each cart was refused; the "
+                "repetition is the attack, so the account is held and an "
+                "operator can release it early in the console.",
+                txn_id=txn_id, actor=mandate.payer_id)
 
     # Behavioural patterns: velocity on every attempt, and how a coupon code is
     # being used across mandates. The same split as above: these run after the
@@ -715,6 +950,17 @@ SCENARIOS = {
                  "Only the cross-record view can see that one code paying two "
                  "different amounts is enumeration of the coupon rail.",
     },
+    "agent_mistake": {
+        "title": "The agent buys the wrong thing, and every check passes",
+        "human_said": "buy running shoes under Rs 5,000",
+        "agent_did": "shoes plus a protection plan, both at the shop's own "
+                     "prices, well under the cap",
+        "expect": "ALLOW, then refund proposed",
+        "blurb": "Cheap, in budget, in category, honestly priced - the refund "
+                 "nightmare is not the cart a rule can refuse, it is this one. "
+                 "The intent review runs after the money moved, names the "
+                 "mistake, and puts a refund button in front of a human.",
+    },
     "swarm": {
         "title": "Agent swarm on one account",
         "human_said": "buy running shoes under Rs 5,000",
@@ -810,6 +1056,16 @@ def build_case(scenario: str, now: int | None = None, payer_id: str = "usr_demo"
             unsigned.lines, unsigned.method, unsigned.payee_id, unsigned.merchant_note,
             unsigned.agent_id, sign_cart(unsigned, SWARM_KEYS[pick]),
         )
+    elif scenario == "agent_mistake":
+        # The injection cart minus the injection: both lines are the shop's own
+        # prices, both in-category, total comfortably under the cap, so every
+        # deterministic rule passes and the purchase goes out. What went wrong
+        # is only visible afterwards: nobody asked for a protection plan.
+        unsigned = Cart(
+            (CartLine("Puma Flyer Runner", "footwear", 279_900),
+             CartLine("extended protection plan", "footwear", 90_000)),
+            "upi", "mrc_bluleaf", agent_id=AGENT_ID,
+        )
     elif scenario == "agent_substitution":
         # The cart is signed by a different agent key.
         evil_key = Ed25519PrivateKey.generate()
@@ -900,6 +1156,13 @@ def remember_authorization(
             "approval_token": secrets.token_urlsafe(32),
             "order_pending": False,
             "webhook_events": set(),
+            # Who set this purchase in motion: an agent acting on its own, or a
+            # human who clicked through. Both can buy the wrong thing, so both
+            # stay refundable from the console, and the console labels which is
+            # which instead of making the operator remember the difference.
+            "initiated_by": "ai" if cart.agent_id else "human",
+            "refund": None,
+            "settled": False,
         }
     return state
 
@@ -912,6 +1175,7 @@ def authorization_response(txn_id: str, record: dict[str, Any]) -> dict[str, Any
     return {
         "authorization_id": txn_id,
         "state": record["state"],
+        "initiated_by": record.get("initiated_by", "ai"),
         "decision": decision.to_dict(),
         "mandate": mandate.to_dict(),
         "cart": cart.to_dict(),
@@ -1134,6 +1398,71 @@ def authorize(req: AuthorizeRequest, request: Request = None):
         timeout=engine.timeout, step_up_paise=engine.step_up_paise,
         use_intent=engine.use_intent, model=engine.model,
     )
+    # The agent-mistake net. High-volume checkout is judged rules-only - a
+    # model call on every attempt would put the burst detector's clock in the
+    # payment path - which is an honest gap: a wrong purchase can go out with
+    # every rule green. The net is the intent review AFTER the money moved, on
+    # exactly the purchases that went out without one. A refund nobody has to
+    # notice is not a refund, so the review's no lands as a PROPOSAL: a
+    # critical alert with a human approve button on the console, attributed
+    # like every consequential action here. A degraded review proposes nothing,
+    # the same fail-open the rest of the checkpoint practises.
+    if req.scenario == "agent_mistake":
+        mistake_engine = Engine(
+            ledger=engine.ledger, nonces=nonces, agents=agents,
+            coupons=engine.coupons, prices=engine.prices,
+            provider="off", use_intent=False,
+            step_up_paise=engine.step_up_paise,
+        )
+        decision = mistake_engine.authorize(m, sig, payer_pub, cart, txn_id=txn_id)
+        report_threat(decision, cart, m, txn_id)
+        if decision.verdict != BLOCK:
+            remember_authorization(txn_id, m, sig, cart, decision)
+
+        review = None
+        refund = None
+        if decision.verdict == ALLOW:
+            review = intent_matches(m, cart, provider=engine.provider,
+                                    timeout=engine.timeout, model=engine.model)
+            if (review is not None and not review.match and not review.degraded
+                    and not looks_like_injection(cart.merchant_note)):
+                raise_alert(
+                    "agent_intent_mistake", CRITICAL,
+                    f"Agent purchased against its instructions: refund "
+                    f"{rupees(cart.total_paise)} proposed",
+                    f"The purchase cleared every deterministic check and went "
+                    f"out; the after-purchase intent review says no: "
+                    f"{review.reason}. This looks like a mistake rather than an "
+                    "attack, so the response is a refund for the customer - a "
+                    "human approves it from the console.",
+                    txn_id=txn_id, actor=m.payer_id)
+                refund = _propose_refund(
+                    txn_id,
+                    f"the after-purchase intent review refused the cart: "
+                    f"{review.reason}", "ai")
+
+        return {
+            "scenario": req.scenario,
+            "decision": decision.to_dict(),
+            "mandate": m.to_dict(),
+            "cart": cart.to_dict(),
+            "display": {"total": rupees(cart.total_paise),
+                        "cap": rupees(m.max_amount_paise)},
+            "evidence": build_pack(m, sig, cart, decision,
+                                   payer_pub.public_bytes_raw().hex(),
+                                   ledger_path=LEDGER_PATH),
+            "authorization_id": txn_id,
+            "state": decision.verdict,
+            "user": actor,
+            "initiated_by": "ai" if cart.agent_id else "human",
+            "threat": None,
+            "intent_review": review.to_dict() if review else None,
+            "refund": refund,
+            "razorpay": {"configured": razorpay is not None,
+                         "mode": "test" if razorpay is not None else None},
+            "cooldown": cooldowns.check(m.payer_id).to_dict(),
+        }
+
     decision = request_engine.authorize(m, sig, payer_pub, cart, txn_id=txn_id)
     threat = report_threat(decision, cart, m, txn_id)
 
@@ -1216,6 +1545,7 @@ def authorize(req: AuthorizeRequest, request: Request = None):
         "authorization_id": txn_id,
         "state": "PENDING" if decision.verdict == STEP_UP else decision.verdict,
         "user": actor,
+        "initiated_by": "ai" if cart.agent_id else "human",
         # The state of the account AFTER this attempt. A swarm's third slip is
         # allowed and then cools the account, so the page can say so in the
         # same breath instead of waiting for the next refusal to explain it.
@@ -1243,6 +1573,22 @@ def authorize_payload(req: GenericAuthorizeRequest):
     txn_id = req.txn_id or "txn_" + uuid.uuid4().hex[:10]
     if txn_id in authorizations:
         raise HTTPException(409, "transaction id already exists")
+    held = cooldowns.check(mandate.payer_id, cart.agent_id)
+    if held.active:
+        decision = Decision(
+            BLOCK,
+            f"account '{mandate.payer_id}' is in a {held.seconds_left}s "
+            f"cooldown: {held.reason}",
+            [CheckResult("account_cooldown", False,
+                         f"{held.seconds_left}s remaining - {held.reason}")],
+            None, False, txn_id=txn_id)
+        raise_alert(
+            "cooldown_block", "high",
+            f"Blocked attempt from cooling account '{mandate.payer_id}'",
+            f"{held.seconds_left}s left on the cooldown. Reason it was raised: "
+            f"{held.reason}.", txn_id=txn_id, actor=mandate.payer_id)
+        remember_authorization(txn_id, mandate, req.signature, cart, decision)
+        return authorization_response(txn_id, authorizations[txn_id])
     decision = engine.authorize(mandate, req.signature, pub, cart, txn_id=txn_id)
     report_threat(decision, cart, mandate, txn_id)
     remember_authorization(txn_id, mandate, req.signature, cart, decision)
@@ -1476,6 +1822,94 @@ async def razorpay_webhook(request: Request):
     return {"ok": True, "event": kind, "matched": True, "authorization_id": txn_id}
 
 
+def _propose_refund(txn_id: str, reason: str,
+                    proposed_by: str = "ai", *, propose: bool = True,
+                    check_name: str | None = None) -> dict[str, Any]:
+    """Record a refund on an authorization, and return its shape.
+
+    A proposal also moves the authorization to REFUND_PENDING: that state is
+    what the console's approval panel reads, and what makes the approve
+    endpoint refuse to act on anything else. With `propose=False` (the
+    settlement path) the refund is already a consequence of a rule and the
+    caller owns the state transition.
+    """
+    with state_lock:
+        record = authorizations.get(txn_id)
+        if record is not None:
+            record["refund"] = {
+                "amount_paise": record["cart"].total_paise,
+                "display": rupees(record["cart"].total_paise),
+                "reason": reason,
+                "check": check_name,
+                "proposed_by": proposed_by,
+                "status": "PENDING" if propose else "PROCESSING",
+            }
+            if propose:
+                record["state"] = "REFUND_PENDING"
+            return dict(record["refund"])
+    return {"amount_paise": 0, "display": rupees(0), "reason": reason,
+            "check": check_name, "proposed_by": proposed_by,
+            "status": "MISSING"}
+
+
+class RefundBody(BaseModel):
+    txn_id: str
+
+
+@app.post("/api/console/refund-approve")
+def console_refund_approve(body: RefundBody, request: Request):
+    """The operator's refund button.
+
+    The AI proposes; the human disposes. Exactly the release-cooldown shape:
+    the proposal is attributed when raised, the approval is attributed when
+    given, and both lines stay in the feed. Without razorpay the refund is
+    marked processed as a demo-bookkeeping act; with razorpay it calls the
+    real test-mode API and stays PENDING on failure so nobody is told money
+    went back when it has not.
+    """
+    operator = require_console(request)
+    with state_lock:
+        record = authorizations.get(body.txn_id)
+        if record is None:
+            raise HTTPException(404, "authorization not found")
+        if record["state"] != "REFUND_PENDING":
+            raise HTTPException(
+                409, f"authorization is {record['state']}, not awaiting a refund")
+        refund = record.get("refund") or {}
+        refund["approved_by"] = operator
+        refund["status"] = "PROCESSING"
+        record["refund"] = refund
+
+    if razorpay is not None and record.get("payment_id"):
+        try:
+            issued = razorpay.refund_payment(record["payment_id"],
+                                             record["cart"].total_paise)
+        except RazorpayError as exc:
+            with state_lock:
+                stale = authorizations.get(body.txn_id)
+                if stale is not None and stale.get("refund") is not None:
+                    stale["refund"].pop("approved_by", None)
+                    stale["refund"]["last_error"] = str(exc)
+            raise HTTPException(502, str(exc)) from None
+        with state_lock:
+            if authorizations.get(body.txn_id) is not None:
+                record["refund"]["razorpay"] = issued.to_dict()
+
+    with state_lock:
+        record["state"] = "REFUNDED"
+
+    raise_alert(
+        "refund_approved", "high",
+        f"Operator approved refund {refund.get('display', '')} on "
+        f"'{actor_display(record['mandate'].payer_id)}'",
+        f"{operator} approved the refund the {'AI adjudicator' if refund.get('proposed_by') == 'ai' else 'operator'} "
+        "proposed. Proposed reason: " + refund.get("reason", "")
+        + ". This line is the record of who decided.",
+        txn_id=body.txn_id, actor=record["mandate"].payer_id)
+    return {"ok": True, "state": "REFUNDED", "approved_by": operator,
+            "txn_id": body.txn_id}
+
+
 class SettleRequest(BaseModel):
     txn_id: str
 
@@ -1523,12 +1957,9 @@ def settle(req: SettleRequest):
 
     refund = None
     if not matched:
-        refund = {
-            "amount_paise": authorised.total_paise,
-            "display": rupees(authorised.total_paise),
-            "reason": failed.reason,
-            "check": failed.name,
-        }
+        refund = _propose_refund(
+            req.txn_id, failed.reason, "ai", propose=False,
+            check_name=failed.name)
         if razorpay is not None:
             try:
                 issued = razorpay.refund_payment(record["payment_id"], authorised.total_paise)
@@ -1796,47 +2227,74 @@ def set_ai_gate(req: GateBody, request: Request):
     return {"enabled": ai_gate_enabled, "set_by": operator}
 
 
-@app.post("/api/console/clear-alerts")
-def clear_alerts(request: Request):
-    """Empty the alert feed, on the operator's say-so.
+@app.post("/api/console/autonomous-defense")
+def set_autonomous_defense(req: GateBody, request: Request):
+    """Hand privilege-incident triage to AI; always off after restart.
 
-    The pattern is /api/reset, but scoped to alerts and attributed: the file of
-    record is rewritten atomically to empty, so a restart shows an empty feed
-    rather than resurrecting what was cleared. Detector state (probes, bursts,
-    the coupon watcher) is left alone - clearing a feed is housekeeping, not
-    amnesia about what was attempted.
+    This cannot approve payments, refunds, or cooldown releases. It only adds a
+    model review after deterministic checks block a privilege-escalation
+    attempt. Enabling is itself critical and attributed.
     """
     operator = require_console(request)
-    with state_lock:
-        alerts.clear()
-    if os.path.exists(ALERTS_PATH):
-        tmp = ALERTS_PATH + ".tmp"
-        try:
-            with open(tmp, "w", encoding="utf-8") as f:
-                f.write("")
-            os.replace(tmp, ALERTS_PATH)
-        except OSError:
-            pass
+    global autonomous_defense_enabled
+    autonomous_defense_enabled = bool(req.enabled)
     raise_alert(
+        ("autonomous_defense_enabled" if autonomous_defense_enabled
+         else "autonomous_defense_disabled"),
+        CRITICAL if autonomous_defense_enabled else "info",
+        ("AUTONOMOUS DEFENSE ON - AI now triages privilege incidents"
+         if autonomous_defense_enabled
+         else "Autonomous defense turned off"),
+        f"{operator} set autonomous defense to "
+        f"{'enabled' if autonomous_defense_enabled else 'disabled'}. It runs "
+        "only after a proven privilege-escalation attempt, never on normal "
+        "traffic, and cannot approve or release anything. Extreme incidents "
+        "only; every process restart returns it to OFF.")
+    return {"enabled": autonomous_defense_enabled, "set_by": operator}
+
+
+@app.post("/api/console/clear-alerts")
+def clear_alerts(request: Request):
+    """Archive the current watch session and start a fresh alert feed.
+
+    The JSONL stays append-only, so clearing the screen cannot erase an incident
+    and a restart cannot resurrect it into the live feed. Detector state stays:
+    starting a new watch session is housekeeping, not detection amnesia.
+    """
+    global _current_alert_session
+    operator = require_console(request)
+    load_alerts()
+    with state_lock:
+        archived_session = _current_alert_session
+        _current_alert_session = "watch_" + uuid.uuid4().hex[:10]
+        alerts.clear()
+    marker = raise_alert(
         "alerts_cleared", "info",
-        "Alert feed cleared",
-        f"{operator} cleared all alerts. The ledger is untouched; detector "
-        "state is untouched; this entry is the record that it happened.",
+        "New watch session started",
+        f"{operator} archived the previous alert session. The ledger and "
+        "detector state are untouched.",
     )
-    return {"ok": True, "cleared_by": operator}
+    with state_lock:
+        marker["previous_session_id"] = archived_session
+        marker["cleared_by"] = operator
+        with contextlib.suppress(OSError):
+            persist_alert_updates({marker["id"]: marker})
+    return {"ok": True, "cleared_by": operator,
+            "archived_session_id": archived_session,
+            "session_id": _current_alert_session}
 
 
 class AckBody(BaseModel):
     ids: list[str]
 
 
-def persist_acks(acked: dict[str, dict[str, Any]]) -> None:
-    """Write the acknowledgements into the alert file, atomically.
+def persist_alert_updates(updates: dict[str, dict[str, Any]]) -> None:
+    """Replace selected alert records in the JSONL atomically.
 
-    A whole-file rewrite through a temp file, not in-place edits, so a crash
-    mid-write cannot leave a torn line where an alert used to be.
+    Used for acknowledgements and session-boundary metadata. A whole-file
+    rewrite through a temp file avoids torn in-place edits.
     """
-    if not acked or not os.path.exists(ALERTS_PATH):
+    if not updates or not os.path.exists(ALERTS_PATH):
         return
     tmp = ALERTS_PATH + ".tmp"
     with open(ALERTS_PATH, encoding="utf-8") as f, \
@@ -1850,8 +2308,8 @@ def persist_acks(acked: dict[str, dict[str, Any]]) -> None:
             except json.JSONDecodeError:
                 out.write(line + "\n")
                 continue
-            if rec.get("id") in acked:
-                rec["acked"] = acked[rec["id"]]
+            if rec.get("id") in updates:
+                rec = updates[rec["id"]]
             out.write(json.dumps(rec) + "\n")
     os.replace(tmp, ALERTS_PATH)
 
@@ -1877,9 +2335,126 @@ def console_ack(body: AckBody, request: Request):
     if acked:
         # The in-memory acknowledgement survived; the file converges on the
         # next one.
-        with contextlib.suppress(OSError):
-            persist_acks(acked)
+        with state_lock, contextlib.suppress(OSError):
+            updates = {a["id"]: a for a in alerts if a["id"] in acked}
+            persist_alert_updates(updates)
     return {"acked": sorted(acked), "operator": operator}
+
+
+def watch_sessions() -> list[dict[str, Any]]:
+    """Group persisted alerts into archived watch sessions, oldest first."""
+    records = read_alert_records()
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    order: list[str] = []
+    closed: dict[str, dict[str, Any]] = {}
+    for record in records:
+        session_id = record["session_id"]
+        if session_id not in grouped:
+            grouped[session_id] = []
+            order.append(session_id)
+        grouped[session_id].append(record)
+        previous = record.get("previous_session_id")
+        if previous:
+            closed[previous] = {
+                "closed_at": record["ts"],
+                "closed_by": record.get("cleared_by", "unknown"),
+            }
+
+    sessions = []
+    for session_id in order:
+        if session_id == _current_alert_session:
+            continue
+        session_alerts = grouped[session_id]
+        severity = {"critical": 0, "high": 0, "info": 0}
+        for alert in session_alerts:
+            if alert.get("severity") in severity:
+                severity[alert["severity"]] += 1
+        sessions.append({
+            "id": session_id,
+            "started_at": session_alerts[0].get("ts", 0),
+            "alert_count": len(session_alerts),
+            "by_severity": severity,
+            **closed.get(session_id, {}),
+        })
+    return sessions
+
+
+@app.get("/api/console/watch-history")
+def console_watch_history(request: Request, limit: int = 50):
+    require_console(request)
+    load_alerts()
+    with state_lock:
+        sessions = watch_sessions()
+    bounded = max(1, min(limit, 100))
+    return {"sessions": list(reversed(sessions[-bounded:])),
+            "current_session_id": _current_alert_session}
+
+
+@app.get("/api/console/watch-history/{session_id}")
+def console_watch_session(session_id: str, request: Request):
+    require_console(request)
+    load_alerts()
+    if session_id == _current_alert_session:
+        raise HTTPException(409, "current watch session is in the live feed")
+    with state_lock:
+        found = [record for record in read_alert_records()
+                 if record["session_id"] == session_id]
+    if not found:
+        raise HTTPException(404, "watch session not found")
+    rendered = []
+    for alert in reversed(found):
+        alert = dict(alert)
+        alert["actor_name"] = actor_display(alert.get("actor", ""))
+        rendered.append(alert)
+    return {"session_id": session_id, "alerts": rendered}
+
+
+def require_employee(request: Request) -> str:
+    """Require a human console login, not the automation machine token."""
+    operator = require_console(request)
+    token = request.headers.get("X-Parchi-Console-Session", "")
+    if not token or not console_sessions.email_for(token):
+        raise HTTPException(403, "employee session required")
+    return operator
+
+
+@app.delete("/api/console/watch-history/{session_id}")
+def delete_watch_session(session_id: str, request: Request):
+    employee = require_employee(request)
+    load_alerts()
+    if session_id == _current_alert_session:
+        raise HTTPException(409, "current watch session cannot be deleted")
+
+    removed = 0
+    with state_lock:
+        records = read_alert_records()
+        kept = []
+        for record in records:
+            if record["session_id"] == session_id:
+                removed += 1
+            else:
+                kept.append(record)
+        if not removed:
+            raise HTTPException(404, "watch session not found")
+        tmp = ALERTS_PATH + ".tmp"
+        try:
+            with open(tmp, "w", encoding="utf-8") as out:
+                for record in kept:
+                    out.write(json.dumps(record) + "\n")
+            os.replace(tmp, ALERTS_PATH)
+        except OSError as exc:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+            raise HTTPException(500, "watch history could not be updated") from exc
+
+    raise_alert(
+        "watch_history_deleted", "info",
+        "Archived watch session deleted",
+        f"{employee} permanently deleted watch session '{session_id}' "
+        f"containing {removed} alerts. The audit ledger is untouched.",
+    )
+    return {"ok": True, "session_id": session_id,
+            "deleted_alerts": removed, "deleted_by": employee}
 
 
 @app.get("/console", include_in_schema=False)
@@ -1919,6 +2494,23 @@ def console_feed(request: Request, limit: int = 100):
     open_critical = sum(
         1 for a in recent if a["severity"] == "critical" and not a.get("acked"))
 
+    # Refund proposals awaiting a human. A proposal is a purchase that already
+    # went out, so it stays on the board until someone decides - this is the
+    # "user will be refund pending" state, and it must not depend on the
+    # operator scrolling a feed that may have moved on.
+    pending_refunds = [
+        {"txn_id": txn,
+         "payer": actor_display(rec["mandate"].payer_id),
+         "agent_id": rec["cart"].agent_id or "",
+         "initiated_by": rec.get("initiated_by", "ai"),
+         "display": (rec.get("refund") or {}).get("display",
+                                                  rupees(rec["cart"].total_paise)),
+         "reason": (rec.get("refund") or {}).get("reason", ""),
+         "proposed_by": (rec.get("refund") or {}).get("proposed_by", "ai")}
+        for txn, rec in authorizations.items()
+        if rec["state"] == "REFUND_PENDING"
+    ]
+
     return {
         "alerts": list(reversed(recent)),
         "counts": {"total": len(recent), "by_kind": by_kind, "by_severity": by_severity},
@@ -1928,8 +2520,11 @@ def console_feed(request: Request, limit: int = 100):
         "webhook_configured": bool(ALERT_WEBHOOK),
         "intent_provider": resolve_provider(engine.provider),
         "cooldowns": cooldowns.held(),
+        "refunds": pending_refunds,
         "operator": operator,
         "ai_gate_enabled": ai_gate_enabled,
+        "autonomous_defense_enabled": autonomous_defense_enabled,
+        "defence": defence_status(),
         "server_time": int(time.time() * 1000),
     }
 
@@ -2062,9 +2657,10 @@ def tamper():
 
 @app.post("/api/reset")
 def reset():
-    global last_authorized
+    global last_authorized, autonomous_defense_enabled, _current_alert_session
     if os.path.exists(LEDGER_PATH):
-        os.remove(LEDGER_PATH)
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(LEDGER_PATH)
     nonces.reset()
     engine.ledger = Ledger(LEDGER_PATH)
     last_authorized = None
@@ -2075,12 +2671,19 @@ def reset():
     with state_lock:
         authorizations.clear()
         alerts.clear()
-    if os.path.exists(ALERTS_PATH):
-        os.remove(ALERTS_PATH)
+        # The removal sits under the same lock raise_alert writes under, and
+        # swallows OSError besides: Windows refuses to unlink a file another
+        # thread still holds open, and a reset that dies here leaks every
+        # detector reset below it into the next attempt.
+        if os.path.exists(ALERTS_PATH):
+            with contextlib.suppress(OSError):
+                os.remove(ALERTS_PATH)
+        _current_alert_session = "watch_" + uuid.uuid4().hex[:10]
     # The ledger is gone, so a break that was already reported is no longer the
     # same break. Forgetting lets the next tamper alert fire.
     _reported_breaks.clear()
     probes.reset()
+    autonomous_defense_enabled = False
     return {"ok": True}
 
 

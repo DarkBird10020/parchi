@@ -461,6 +461,32 @@ reason    : cart contains ['electronics'], outside allowed categories ['footwear
 Nobody has to notice. The refund is a consequence of the rule, not a customer
 service decision, and it is written into the hash chain like any other verdict.
 
+### When the mistake is the agent's, not the merchant's
+
+Settlement catches the merchant shipping the wrong thing. The other half nobody
+rules can catch: the agent buying the wrong thing while every rule passes it.
+High-volume checkout is judged rules-only - a model call on every attempt would
+put the burst detector's clock in the payment path - so a wrong purchase can
+genuinely go out. The **after-purchase intent review** is the net: the same
+one-question model call, run after the money moved, on exactly the purchases
+that went out without one.
+
+When the review says no - and the product text shows no injection markers, so
+this is an agent going astray rather than a merchant attacking it - the
+response is not a verdict, it is a proposal. The purchase flips to
+`REFUND_PENDING`, a critical alert names the mistake, and the operations
+console carries an **Approve refund** button. The AI proposes; the human disposes; the
+approval is attributed like every consequential action here. A review that
+could not actually judge the cart (degraded, no provider) proposes nothing -
+fail open, like everywhere else.
+
+Every purchase also carries who set it in motion: an agent presenting its own
+slips, or a human who clicked through themselves. Even a purchase where the
+intent matched cleanly stays refundable from the console - the customer whose
+money was deducted does not care whose story is cleaner - but the console
+labels the difference, because a refund conversation starts with who was
+driving.
+
 ### The operations console
 
 Alerts are no use if the only person who sees them is the customer whose purchase
@@ -509,9 +535,23 @@ looks next rather than by whoever clicks Tamper in the demo.
 automatic cooldowns; the deterministic alerts keep flowing, because cheaper must
 not mean blind. The person paying the token bill is the person who can cap it.
 
-**Clear all** empties the feed, attributed, with the ledger untouched. **Sound**
-and **Re-nag** are per-browser choices, and re-nag is off by default because one
-chime per new critical already carries the news.
+**Defence AI** is a lamp on that band, and it reports whether the endpoint is
+*answering*, not whether it is configured. That distinction is the whole point:
+a refused call still spends a budget slot, so an expired key or a spent
+subscription burns the allowance on every attempt and returns nothing, and the
+lamp used to read green at zero successful calls. Underneath it everything
+degrades correctly and therefore invisibly — the adjudicator returns no verdict,
+convicts nobody, and the deterministic alerts carry on arriving, so the console
+looks entirely normal while nothing is being reviewed. Four consecutive
+failures now turn the lamp **failing** and name the cause (`HTTP 401`); one
+success clears it. Fail-open is only safe if somebody is told. FAILURES.md
+entry 21.
+
+**Clear all** archives the current feed and starts a new watch session, attributed,
+with the ledger untouched. **Watch history** restores every cleared session after
+a reload or restart; signed-in employees can permanently delete an archive.
+**Sound** and **Re-nag** are per-browser choices, and re-nag is off by default
+because one chime per new critical already carries the news.
 
 A real deployment puts this behind the company IdP. That is stated on the page
 itself rather than left for someone to discover.
@@ -554,6 +594,8 @@ about exactly one of them. Every refusal is classified before it is reported:
 | Coupon abuse confirmed by counting, no model asked | `coupon_abuse_confirmed` | critical |
 | Attack confirmed: account blocked for 10 minutes | `account_cooled` | critical |
 | An attempt from a cooling account | `cooldown_block` | high |
+| Agent bought against intent after every rule passed | `agent_intent_mistake` | critical |
+| Operator approved the proposed refund | `refund_approved` | high |
 
 Two of those are worth dwelling on. **`probing`** fires when the same actor is
 refused five times in a minute: every individual verdict was correct and no money
@@ -576,7 +618,7 @@ dead webhook still returns a successful refund.
 
 ### The patterns one cart cannot show
 
-The last eight rows of that table come from a second layer. The per-cart checks
+The last ten rows of that table come from a second layer. The per-cart checks
 judge one cart against one mandate; `parchi/behavior.py` asks what the *sequence*
 of attempts says. Nothing in it can change a verdict. It decides who hears about
 one.
@@ -625,6 +667,16 @@ there by two different routes.
 |:--- |:--- |
 | One code claimed at **more than one value** | A coupon is worth what it is worth. No sale, retry or honest mistake makes one code pay two different sums. Raising the claimed value on a code you have already used is the coupon rail being probed, and there is nothing to weigh up. |
 | One code being **farmed** | One payer carrying a code across many mandates is farming whatever the code is. Many payers on a code the merchant issued to a single named customer means it has leaked. Both are counting plus a lookup in the merchant's own book. |
+
+The first row shipped working and was then broken by a tidying guard, which is
+worth stating because the friendly path never showed it. A rule that dropped a
+drift alert arriving beside any other alert on the same code was right for
+farming and wrong for volume: warm a code four times at its real value, inflate
+on the fifth, and the drift arrived in the same breath as the hot alert, was
+dropped as a duplicate, and no cooldown ever landed. The demo scenario inflates
+on the second attempt, so the drift arrives alone and the test passed. Only the
+threshold crossing was broken — which is the attempt an attacker actually
+makes. FAILURES.md entry 20.
 
 That second row is why `Coupon` carries a `public` flag. Twenty-six payers on
 one code is a Diwali sale if the code was advertised and a leak if it was

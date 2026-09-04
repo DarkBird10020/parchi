@@ -788,3 +788,108 @@ is now itself a documented finding rather than a caveat.
 
 The quantity-inflation blind spot and the missing agent-identity check are now
 fixed and defended by tests; see entries 12 and 13.
+
+---
+
+### 20. The guard meant to stop duplicate alerts was eating the cooldown
+
+**Where.** `check_patterns` in `parchi/behavior.py`.
+
+**Found by** the operator re-reading the feature the day after it shipped: a
+coupon hammered at inflating values should still cool the account, and the
+wording of the suppression guard said it might not.
+
+**What was wrong.** The guard dropped a `discount_drift` alert whenever it
+arrived in the same breath as any other per-code alert, hot or farming. The
+reasoning was right for farming: the farm shape already routes to the
+escalation gate, so the drift is an echo. It was wrong for hot. Hot is volume,
+drift is a code paying two different sums, and drift is the only one of the
+two the escalation gate reads. Suppress it and no shape reaches the gate, no
+`coupon_verdict` runs, and no cooldown lands.
+
+The failure needs one specific sequence, and it is the sequence an attacker
+would actually produce: four attempts at the code's true value, then the
+inflated claim on the fifth - the one attempt where the hot threshold and the
+first drift fire together. An attacker warms the rail before inflating it,
+because inflating immediately is caught by the per-cart discount check anyway.
+The watcher marks the drift raised on that attempt regardless of suppression,
+so no later attempt can raise it either. One missed breath, and the block
+never lands.
+
+That sequence is also why the feature's own end-to-end test could not see it.
+The demo scenario fires the inflated claim as the second event, so the drift
+arrives alone and escalates fine. The hole only exists at the threshold.
+
+**Changed.** The guard now suppresses the drift echo only beside
+`coupon_farming`. `test_a_hot_code_that_also_drifts_still_names_the_drift`
+pins the unit shape, and
+`test_a_hot_code_claimed_at_two_values_still_cools_the_account` walks the
+threshold-crossing sequence through the live endpoint with the adjudicator
+stubbed to explode, asserting the account cools anyway.
+
+| Sequence | Before | After |
+|---|---|---|
+| Inflate on attempt 2 (the demo scenario) | blocked | blocked |
+| Inflate on attempt 5, the hot crossing | alerted, never blocked | blocked |
+
+The second row is the whole finding: the feature was verified against its
+friendly path and broken on its adversarial one, which is the shape of every
+entry in this file.
+
+---
+
+### 21. The lamp for the defence AI reported "working" through a dead key
+
+**Where.** `defence_status` in `demo/server.py`, reading
+`openai_provider.budget()`.
+
+**Found by** the operator asking a question the console could not answer: the
+API key may have spent its token allowance, so is the autonomous defence
+actually running? The honest answer was that nothing in the system knew.
+
+**What was wrong.** The lamp had three states, and all three described how the
+server was *configured* rather than whether the endpoint was *answering*. Green
+meant the AI gate was on and the call budget was not nearly spent. Amber meant
+the budget was nearly spent. Red meant an operator had switched the gate off.
+
+A budget counts calls a process is allowed to make. It says nothing about
+whether any of them worked, and the two fail in opposite directions. A refused
+call still spends a budget slot: `budget().spend()` runs before the request, so
+an expired key or an exhausted subscription burns the allowance on every
+attempt and returns nothing. The lamp therefore read green at zero successful
+calls, and kept reading green while the counter climbed, until enough refusals
+pushed it to amber - which says "token usage very high", the one message that
+would send an operator to buy more of something that was already the problem.
+
+Underneath the lamp, everything degraded quietly and correctly. `assess_attack`
+returns `None` when the endpoint is unavailable, `_adjudicate` returns without
+convicting anyone, and the deterministic detectors carry on alerting. That is
+the right behaviour and it is why the failure is invisible: the console looks
+entirely normal, alerts keep arriving, and no adjudication is happening at all.
+Fail-open is only safe if somebody is told.
+
+Measured with a deliberately dead key against the live endpoint:
+
+| | Before | After |
+|---|---|---|
+| Lamp after 5 refused adjudications | green, "working" | failing, "NOT ANSWERING" |
+| Cause shown to the operator | none | `HTTP 401` |
+| Successful calls behind a green lamp | 0 | n/a |
+
+**Changed.** `CallHealth` sits beside `CallBudget` in `parchi/openai_provider.py`
+and is recorded at the two places a call can end: the success path, and both
+raise paths. The lamp gained a fourth state, `failing`, checked *before* budget
+because an endpoint that is not answering is a worse fact than one answering a
+lot, and it is the one an operator can act on. The threshold is four
+consecutive failures, so a single timeout stays weather; one success clears it,
+so a recovered key needs no restart. The console renders `failing` as its own
+blinking state rather than a synonym for red, because red is a switch somebody
+threw on purpose and this is not.
+
+`tests/test_defence_health.py` pins all of it, including the two orderings that
+matter: `failing` beats `amber` (a spent subscription is both), and an operator
+switching the gate off still beats everything (that is not an outage).
+
+The generalisable point is the one this file keeps making in different clothes:
+a health indicator that reads configuration instead of outcomes is worse than
+no indicator, because it converts an outage into a green light.

@@ -166,15 +166,17 @@
   .vchip.BLOCK{border-color:var(--block); color:var(--block)}
   .vchip.STEP_UP{border-color:var(--stepup); color:var(--stepup)}
 
-  .cards4{display:grid; grid-template-columns:repeat(4,1fr); gap:18px; margin-top:42px}
+  .cards4{display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:18px; margin-top:42px}
+  @media(max-width:1380px){ .cards4{grid-template-columns:repeat(2,minmax(0,1fr))} }
   @media(max-width:900px){ .cards4{grid-template-columns:1fr} }
-  .cards4 .sheet{padding:26px; display:flex; flex-direction:column; gap:10px}
+  .cards4 .sheet{padding:26px; display:flex; flex-direction:column; gap:10px;
+                 width:auto}   /* the receipt .sheet is 420px wide; these are grid cells */
   .cards4 .num{font-family:var(--mono); font-size:10.5px; letter-spacing:.16em; color:var(--stamp)}
   .cards4 p{font-size:14px; color:var(--ink-2); line-height:1.6}
 
   /* ---------- demo ---------- */
   .demo{display:grid; grid-template-columns:292px minmax(0,1fr) 330px; gap:18px; align-items:start; margin-top:30px}
-  @media(max-width:1120px){ .demo{grid-template-columns:280px minmax(0,1fr)} .rail-right{grid-column:1/-1} }
+  @media(max-width:1300px){ .demo{grid-template-columns:280px minmax(0,1fr)} .rail-right{grid-column:1/-1} }
   @media(max-width:820px){ .demo{grid-template-columns:1fr} }
   .demohead{display:flex; align-items:flex-end; gap:24px; flex-wrap:wrap}
   .scenarios{display:flex; flex-direction:column; gap:8px}
@@ -205,7 +207,7 @@
   /* The scenario rail is taller than the other two columns, so on a wide screen
      they scroll out of view while the list is still going. Pin them instead:
      the verdict and the chain stay on screen for the whole demo. */
-  @media(min-width:1121px){
+  @media(min-width:1301px){
     .demo > .sheet, .rail-right{position:sticky; top:86px}
   }
   .panelhead{
@@ -318,7 +320,7 @@
 /* The chat demo. A customer sentence goes in, a checked purchase comes out. */
 .chatwrap{display:grid; grid-template-columns:1fr 1fr; gap:18px; align-items:start}
 @media (max-width:960px){ .chatwrap{grid-template-columns:1fr} }
-.chatbox{border:1px solid var(--rule); background:var(--card); border-radius:3px;
+.chatbox{min-width:0; border:1px solid var(--rule); background:var(--card); border-radius:3px;
          display:flex; flex-direction:column; min-height:330px}
 .chatlog{flex:1; padding:15px; display:flex; flex-direction:column; gap:11px;
          overflow-y:auto; max-height:340px}
@@ -328,7 +330,7 @@
 .msg.sys{align-self:center; font:11px var(--mono); color:var(--ink-3); background:none;
          border:0; text-align:center}
 .chatform{display:flex; gap:8px; border-top:1px dashed var(--rule); padding:11px}
-.chatform input{flex:1; border:1px solid var(--rule); background:var(--paper);
+.chatform input{flex:1; min-width:0; border:1px solid var(--rule); background:var(--paper);
                 border-radius:3px; padding:9px 11px; font:14px var(--serif); color:var(--ink)}
 .chatform input:focus{outline:2px solid var(--ink-4); outline-offset:1px}
 .chips{display:flex; flex-wrap:wrap; gap:6px; padding:0 11px 11px}
@@ -563,8 +565,8 @@
            evaluation. The number is reproducible, not a market-wide claim.</p>
       </div>
       <div>
-        <div class="big">10 <span style="font-size:26px; color:var(--ink-3)">rules +</span> 1</div>
-        <p>On the seeded 1,000-row evaluation, ten deterministic checks catch 235/280 violations.
+        <div class="big">12 <span style="font-size:26px; color:var(--ink-3)">rules +</span> 1</div>
+        <p>On the seeded 1,000-row evaluation, twelve deterministic checks catch 235/280 violations.
            One model call handles the semantic intent gap.</p>
       </div>
       <div>
@@ -711,6 +713,47 @@
         Decisions that execute an intent check record the provider in evidence and ledger data.
       </p>
     </div>
+
+    <div class="chart">
+      <h3>Which half produced that number, and what it costs</h3>
+      <p class="dim" style="font-size:14px; margin-top:5px">
+        The chart above is the no-key reproduction, which is why the Parchi row reads &#8377;0.
+        The numbers below are the run against a <b>real model</b> &mdash; 278/280 caught, 22 good
+        customers blocked, &#8377;1,59,521 &mdash; because a row produced by the offline stand-in is
+        not evidence for what this project claims. Attributing every block in that published
+        ledger to the check that actually fired:
+      </p>
+      <p style="font-size:15px; line-height:1.75; margin-top:12px">
+        A <b>deterministic rule</b> caught 235 violations and blocked <b>0</b> good customers.<br />
+        The <b>one model call</b> caught 43 more &mdash; the 83.9%&nbsp;&rarr;&nbsp;99.3% jump &mdash;
+        and blocked <b>22</b>, which is every false block in the run. Its own precision on the
+        carts it refused alone is <b>66.2%</b>.
+      </p>
+      <p style="font-size:15px; line-height:1.75; margin-top:14px">
+        Confusion matrix over the 1,000 rows: 278 true positives, 2 false negatives,
+        22 false positives, 698 true negatives. Precision 92.7%, recall 99.3%,
+        false-positive rate on good carts <b>3.06%</b>.
+      </p>
+    </div>
+
+    <div class="chart">
+      <h3>Attacks written by something that has never seen the rules</h3>
+      <p class="dim" style="font-size:14px; margin-top:5px">
+        A perfect score on data I generated, against attacks I designed, defended by rules I
+        wrote, is a closed loop. So a separate model was given the product and none of the
+        checks, thresholds or prompts, and asked to write carts that beat it.
+      </p>
+      <p style="font-size:15px; line-height:1.75; margin-top:12px">
+        Forty distinct cases. Parchi caught <b>22 of 29 attacks (76%)</b> and allowed
+        10 of 11 honest carts through. The seven that got through are premium upgrade,
+        category substitution, quantity padding and description mimicry &mdash; all the same
+        weakness, that a sentence does not pin down <i>which</i> running shoe.
+      </p>
+      <p class="dim" style="font-size:14px; margin-top:12px">
+        The generated set is committed in <span class="mono">eval/redteam_cases.json</span> with
+        the scored results beside it. 76% is the number worth arguing with.
+      </p>
+    </div>
   </div>
 </section>
 
@@ -729,10 +772,10 @@
       </div>
       <div class="sheet">
         <div class="num">02: THE RULES</div>
-        <h3>Ten deterministic checks</h3>
-        <p>Signature, expiry, payee, method, line items, quantity, category, cap, agent
-           identity, replay, in order, short-circuiting on the first failure. No AI in
-           that file.</p>
+        <h3>Twelve deterministic checks</h3>
+        <p>Signature, expiry, payee, method, line items, quantity, prices, category,
+           discount, cap, agent identity, replay, in order, short-circuiting on the first
+           failure. No AI in that file.</p>
       </div>
       <div class="sheet">
         <div class="num">03: THE ONE CALL</div>

@@ -246,3 +246,28 @@ def test_the_hero_states_the_real_number_of_attack_patterns():
     assert panel, "the results panel no longer states an attack-pattern count"
     assert int(panel.group(1)) == real, (
         f"the results panel says {panel.group(1)}, the suite defines {real}")
+
+
+def test_the_page_states_the_real_number_of_deterministic_checks():
+    """The landing page said "ten" while `run_all` ran twelve.
+
+    It drifted in two places at once, because the count is prose in one file
+    and a list of lambdas in another, and nothing connected them. So nothing
+    noticed when `check_prices` and `check_discount` were added. This connects
+    them: the page may not name a count that `run_all` does not have.
+    """
+    source = (ROOT / "parchi" / "checks.py").read_text(encoding="utf-8")
+    body = re.search(r"def run_all\(.*?(?=\ndef |\nclass |\Z)", source, re.S)
+    assert body, "run_all is no longer findable in parchi/checks.py"
+    real = len(re.findall(r"lambda: check_", body.group(0)))
+    assert real > 0, "run_all no longer looks like a list of check lambdas"
+
+    words = {9: "nine", 10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen"}
+    html = _read("demo/index.html").lower()
+    for number, word in words.items():
+        if number == real:
+            continue
+        for form in (word, str(number)):
+            assert f"{form} deterministic check" not in html, (
+                f"demo/index.html says {form!r} deterministic checks, "
+                f"run_all runs {real}")

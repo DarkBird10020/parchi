@@ -1117,13 +1117,32 @@ async function settleAuthorization(){
     btn.hidden = true;
   }
 }
+// Scenarios do not all cost the same. One refused by a rule answers in under a
+// millisecond; one that reaches the model has measured anywhere from 3 to 18
+// seconds on this endpoint. So a visitor who clicks a slow scenario and then a
+// fast one used to get the fast answer, and then watched it be overwritten by
+// the slow one landing late - the panel showing one scenario's checks under
+// another scenario's highlighted button. Every row was real and none of them
+// belonged together, which is the worst way for a page to be wrong.
+//
+// Each run takes a ticket. A response that is no longer the newest is dropped
+// rather than rendered: the click a visitor made last is the one they get.
+let runSeq = 0;
+
 async function run(id, btn){
+  const seq = ++runSeq;
   document.querySelectorAll(".sbtn").forEach(b => b.setAttribute("aria-pressed", "false"));
   if(btn) btn.setAttribute("aria-pressed", "true");
   const t0 = performance.now();
   const actions = $("#authorizationActions");
   actions.hidden = true;
   $("#authorizationStatus").textContent = "";
+  // Say it is working. A model call that takes twelve seconds behind a stamp
+  // still reading the last verdict is indistinguishable from a dead page.
+  $("#verdict").className = "stamp IDLE";
+  $("#verdict").textContent = "RUNNING";
+  $("#reason").textContent = "Checking this cart against the mandate…";
+  $("#cooldownNote").hidden = true;
   let r;
   try {
     r = await api("/api/authorize", {
@@ -1131,11 +1150,13 @@ async function run(id, btn){
       body: JSON.stringify({ scenario:id, kill_model: $("#killModel").checked })
     });
   } catch(error) {
+    if(seq !== runSeq) return;
     $("#reason").textContent = error.message;
     $("#verdict").className = "stamp BLOCK";
     $("#verdict").textContent = "ERROR";
     return;
   }
+  if(seq !== runSeq) return;   // superseded by a later click; drop this answer
   const ms = Math.round(performance.now() - t0);
   const d = r.decision;
 

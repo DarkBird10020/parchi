@@ -150,3 +150,42 @@ def test_the_stage_title_is_not_assigned_twice():
     assert html.count('$("#stageTitle").textContent =') == 1, (
         "#stageTitle is assigned more than once; the later write wins and "
         "discards whatever the earlier one built")
+
+
+# ------------------------------------------------- one click, one answer
+
+def _page() -> str:
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[1]
+            / "demo" / "index.html").read_text(encoding="utf-8")
+
+
+def test_a_superseded_scenario_response_is_dropped_rather_than_rendered():
+    """The panel used to show one scenario's checks under another's button.
+
+    Scenarios do not cost the same. A cart refused by a rule answers in under a
+    millisecond; one that reaches the model measured 3-18s on this endpoint. So
+    clicking a slow scenario and then a fast one rendered the fast answer and
+    then let the slow one land on top of it. Every row was real and none of
+    them belonged together, which reads exactly like "all the checkpoints are
+    incorrect" - because they were.
+
+    `run` now takes a ticket and drops any response that is no longer the
+    newest. Asserted on the source because the race needs two live requests of
+    different durations, which is a browser test, not this one.
+    """
+    html = _page()
+    assert "let runSeq = 0;" in html, "the run sequencer is gone"
+    assert "const seq = ++runSeq;" in html, "run() no longer takes a ticket"
+    assert html.count("if(seq !== runSeq) return;") >= 2, (
+        "both the success and the error path have to drop a superseded "
+        "response; one guard alone still lets a failed slow call overwrite a "
+        "newer verdict")
+
+
+def test_a_running_scenario_says_so():
+    """Twelve seconds behind a stale stamp is indistinguishable from a dead page."""
+    html = _page()
+    assert '"RUNNING"' in html, (
+        "nothing tells a visitor the checkpoint is working; on a model-bound "
+        "scenario the page looks frozen for seconds")

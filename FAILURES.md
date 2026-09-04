@@ -953,3 +953,116 @@ Eight samples was a number this repo would have been happy to publish. The next
 four moved p95 by seven seconds. The p95 of a twelve-call run is its
 second-slowest call, and a sample small enough to be lucky is small enough to
 be wrong.
+
+---
+
+### 23. A counter that counted the wrong thing, and wrote it into the ledger
+
+**Where.** `report_threat` in `demo/server.py`, sharing one `ProbeDetector`.
+
+**Found by** the operator clicking down the scenario list on the landing page,
+which is how anybody actually uses it and how no test used it. Every scenario
+test resets the cooldown first, so each proved its scenario worked *in
+isolation*. Clicked in order, an early scenario earned the ten-minute account
+block and the nine below it returned the same generic cooldown sentence instead
+of their own verdict. Two thirds of the demo looked broken.
+
+**What was wrong.** `ProbeDetector` counts refused attempts of any kind, which
+is right for the question it was built to answer: is this actor mapping where
+the wall is? The payee-substitution escalation then read that same shared count
+to answer a completely different question: is this actor trying to redirect the
+money again and again?
+
+So four unrelated refusals - an expired mandate, a wrong method, anything - and
+then ONE payee substitution tripped a cooldown. The account was held under a
+reason that read "repeated payee substitution attempts", and the alert written
+to an operator and into the hash-chained ledger said:
+
+> 5 refused payee substitution attempts in under a minute
+
+when there had been exactly one. The false trigger is a bug. The false sentence
+in the audit trail is worse, because the entire argument of this project is
+that the ledger can be handed to someone as evidence.
+
+**Changed.** Payee substitutions are counted on their own detector. The generic
+probing alert still counts everything, because that question really is about
+any refusal. `tests/test_scenario_sweep.py` clicks the whole list in order the
+way a visitor does, asserts a single payee substitution never cools an account,
+and asserts the alert's number matches what was actually attempted.
+
+One block a visitor can still reach is correct and stays: agent impersonation
+is a privilege escalation and earns the hold on its first attempt. Unexplained
+it still read as a bug, so the verdict card now says the scenario never reached
+its own checks, that this is the block working, and which two ways out there
+are.
+
+---
+
+### 24. Two different faults, one wrong answer: STEP_UP for everything
+
+**Where.** `.env`'s pinned model, `DEMO_TIMEOUT`, and `chat_json_schema` in
+`parchi/openai_provider.py`.
+
+**Found by** the operator, mid-recording, reporting that every scenario showed
+STEP_UP - including a prompt injection that had been blocking correctly an hour
+earlier.
+
+**What was wrong.** Nothing, in the sense that mattered least: the system was
+doing exactly what it promises when the model cannot answer. A degraded intent
+check returns STEP_UP, never ALLOW. That property held throughout. What broke
+is that it was degrading constantly, for two unrelated reasons, and a degraded
+row still returns a verdict, so the page stayed plausible while being useless.
+
+*One: a slow model behind a fast timeout.* The intent model was pinned to
+`deepseek-v4-flash`, measured at 37-60s in entry 22 and written into the README
+as too slow, and then put in the payment path anyway because it had been asked
+for. The demo timeout was 25s. Every model-bound scenario timed out.
+
+*Two: an empty 200.* This endpoint intermittently answers with a full reasoning
+field and an empty content field. The provider already called that "a
+transport-grade failure wearing a success status" - and then raised on it,
+which is the one thing a transport-grade failure should not get, because the
+intent check has no retry by design.
+
+**Changed.** The intent path runs `glm-5.3-flash` (6-18s) and DeepSeek is the
+adjudicator's second opinion, where nobody is waiting on the answer. The demo
+timeout is 45s. An empty message is retried once on exactly the terms a dropped
+socket is, still bounded by the same counter, so a persistently empty model
+raises rather than looping in front of a payment.
+
+The lesson is the one entry 10 already paid for and this file evidently had to
+pay for twice: **a failure that degrades instead of raising will be found by a
+user, not by a test**, because every intermediate layer keeps working. The
+defence lamp from entry 21 exists for the same reason and did its job here -
+it was the health counter that named `HTTP 401` and the empty-message error
+rather than a stack trace nobody was reading.
+
+---
+
+### 25. The page rendered whichever answer came back last
+
+**Where.** `run()` in `demo/index.html`.
+
+**Found by** the operator, as "all the checkpoints are incorrect". They were:
+the panel was showing one scenario's checks under a different scenario's
+highlighted button.
+
+**What was wrong.** `run()` awaited its fetch and rendered whatever came back,
+with nothing tying a response to the click that asked for it. Scenarios do not
+cost the same - a cart refused by a rule answers in under a millisecond, one
+that reaches the model measured 3 to 18 seconds - so clicking a slow scenario
+and then a fast one rendered the fast answer and then let the slow one land on
+top of it.
+
+Every row on screen was real. None of them belonged together. That is the worst
+way for a page to be wrong, because it looks like the checks are broken rather
+than like the page is, and the checks are the product.
+
+The race existed before the provider move and was narrow enough not to be seen
+when calls took two seconds. Making the model slower did not create it, it
+just made it constant.
+
+**Changed.** Each run takes a ticket and a response that is no longer the newest
+is dropped, on the error path as well as the success path. A run also says
+RUNNING while it waits, because twelve seconds behind a stamp still showing the
+previous verdict is indistinguishable from a dead page.

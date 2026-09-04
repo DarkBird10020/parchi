@@ -9,7 +9,7 @@
 [![CI](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml/badge.svg)](https://github.com/DarkBird10020/parchi/actions/workflows/ci.yml)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue)](https://www.python.org/downloads/)
 [![Attack patterns](https://img.shields.io/badge/attack%20cases-48%20defended-success)](tests/test_attacks.py)
-[![Tests](https://img.shields.io/badge/tests-353%20passing-success)](tests/)
+[![Tests](https://img.shields.io/badge/tests-363%20passing-success)](tests/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-black)](LICENSE)
 
 *Razorpay AI Buildathon · Track 02 · AI Risk Manager*
@@ -95,7 +95,7 @@ python eval/evaluate.py      # the results table below, plus eval/results.json
 Two commands reproduce every number in this README. Three more, optional:
 
 ```bash
-python -m pytest tests/ -q    # 353 tests
+python -m pytest tests/ -q    # 363 tests
 python tests/test_attacks.py  # 48 adversarial patterns, printed as a report
 python demo/server.py         # http://127.0.0.1:8000, the page in the video
 ```
@@ -421,10 +421,27 @@ any cart whose intent check could not run becomes `STEP_UP`, not `ALLOW` or `BLO
 python demo/server.py     # → http://127.0.0.1:8000
 ```
 
-Fifteen scenarios, each a real `POST /api/authorize`. Every check and its reason
+Sixteen scenarios, each a real `POST /api/authorize`. Every check and its reason
 is shown, the evidence pack is the JSON a merchant would send to an issuer, and
 the ledger pane verifies its own hash chain, with a **Tamper** button, because
 showing it beats claiming it.
+
+Three things the page does that only matter once it is in front of somebody,
+and each of them exists because its absence was mistaken for a broken product:
+
+- **One click, one answer.** Scenarios do not cost the same: a cart refused by a
+  rule answers in under a millisecond, one that reaches the model takes seconds.
+  Each run takes a ticket and a response a later click has superseded is dropped
+  rather than rendered, so the panel can never show one scenario's checks under
+  another scenario's button ([entry 25](FAILURES.md)).
+- **A running call says so.** The stamp reads `RUNNING` while the model is
+  thinking, because a stale verdict sitting there for twelve seconds is
+  indistinguishable from a dead page.
+- **A block explains itself.** Some scenarios earn a ten-minute account
+  cooldown, and every scenario tried afterwards is then correctly refused before
+  reaching its own checks. That is the feature, but repeated with no explanation
+  it reads as a bug, so the card says which it is and offers the two ways out:
+  **Reset**, or an operator release in the console.
 
 <img src="docs/images/checkpoint.jpg" alt="The checkpoint refusing an injected add-on: every rule passes, the intent check catches it, and the evidence pack is on the right" width="100%">
 
@@ -522,6 +539,16 @@ alert was about, and what is being attempted right now.
 | **Autonomous defence: ON/OFF** | Lets the AI triage privilege-escalation incidents unattended | Default **off**. Unattended AI action is a decision a company makes deliberately, not a default it discovers |
 | **Clear all / Watch history** | Archives the feed into an attributed session, restorable after restart | A shift handover, with the ledger untouched |
 | **Verify the chain** | Re-checks the audit log on every page open | A tampered log is found by whoever looks next, not by whoever tampered |
+
+Both consequential buttons say what happened, which sounds like a detail and
+is not: a release that silently did nothing is indistinguishable from a broken
+one, and that is exactly how it was reported. An expired session now signs you
+out and says so rather than swallowing the click, a failure names itself, and
+the server's "that account was no longer being held" — which happens when a
+block expires between the page rendering and your click — is passed through
+instead of looking like a release that failed. Approving a step-up asks for its
+credential in the page rather than in a browser dialog, and says so plainly when
+the channel is not configured at all.
 
 Two properties hold across all of it. **Every consequential action is
 attributed** — the ledger records who, not just what. And **the AI can never be

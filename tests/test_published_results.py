@@ -214,7 +214,8 @@ def test_the_pitch_states_the_real_number_of_failure_entries():
     text = (ROOT / "docs/pitch-video.md").read_text(encoding="utf-8")
     words = {13: "Thirteen", 14: "Fourteen", 15: "Fifteen", 16: "Sixteen",
              17: "Seventeen", 18: "Eighteen", 19: "Nineteen", 20: "Twenty",
-             21: "Twenty-one", 22: "Twenty-two"}
+             21: "Twenty-one", 22: "Twenty-two",
+             23: "Twenty-three", 24: "Twenty-four", 25: "Twenty-five"}
     assert entries in words, f"add {entries} to the word map in this test"
     assert re.search(rf"\b({entries}|{words[entries]})\b\s+entries", text, re.I), (
         f"the pitch script does not say {entries} entries, which is how many "

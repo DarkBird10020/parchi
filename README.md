@@ -70,7 +70,8 @@ the scoreboard is denominated in rupees rather than in percentages.
 ## Contents
 
 [Quickstart](#quickstart) · [How it works](#how-it-works) · [Results](#results) ·
-[The demo](#the-demo) · [The operations console](#the-operations-console) ·
+[The demo](#the-demo) ·
+**[The operations console — the employee side](#the-operations-console--the-employee-side-of-the-product)** ·
 [Patterns one cart cannot show](#the-patterns-one-cart-cannot-show) ·
 [What earns a block](#what-earns-the-ten-minute-block) ·
 [Adversarial testing](#adversarial-testing) ·
@@ -496,19 +497,43 @@ money was deducted does not care whose story is cleaner - but the console
 labels the difference, because a refund conversation starts with who was
 driving.
 
-### The operations console
+## The operations console — the employee side of the product
 
-Alerts are no use if the only person who sees them is the customer whose purchase
-was refused. `/console` is the internal view: every refusal on this checkpoint,
-worst first, with the live state of the audit chain, who each alert was about, and
-what is currently being attempted.
+Everything above this line is the checkpoint: it runs in milliseconds and nobody
+watches it. This section is the other half, and it is the half a company
+actually staffs. A risk product is not a verdict, it is a verdict **plus the
+person who has to answer for it**, and that person needs somewhere to stand.
+
+`/console` is that place: an internal, authenticated view of every refusal on
+this checkpoint, worst first, with the live state of the audit chain, who each
+alert was about, and what is being attempted right now.
 
 <img src="docs/images/console.jpg" alt="The operations console: an agent swarm confirmed by the AI adjudicator, the account cooled for ten minutes, and a release button" width="100%">
 
-That screenshot is one incident. Three registered agents presented slips for the
-same payer, every deterministic check passed for each of them, the adjudicator was
-asked what the pattern meant, and it answered `credential farm` at 90% confidence.
-The account is cooled for ten minutes and a person can lift it from that panel.
+**What an employee can actually do here**, and what it costs when they do:
+
+| Action | What it does | Why it is on this page |
+|:--- |:--- |:--- |
+| **Release a cooled account** | Lifts a ten-minute block immediately | Overruling the adjudicator on a live customer is the most consequential thing anyone does here, so it names the operator in the ledger |
+| **Approve a refund** | Executes a refund the AI *proposed* after a purchase went out wrong | The AI proposes, the human disposes. A model never moves money on its own |
+| **Acknowledge an alert** | Records who saw it and when | The alert stays in the feed — acknowledgement is attribution, not deletion |
+| **Read the defence lamp** | Says whether the protecting AI is *answering*, not merely configured | An outage that renders as a green light is worse than no light at all |
+| **AI gate: ON/OFF** | Stops model calls and automatic cooldowns; detectors keep alerting | The person paying the token bill is the person who can cap it |
+| **Autonomous defence: ON/OFF** | Lets the AI triage privilege-escalation incidents unattended | Default **off**. Unattended AI action is a decision a company makes deliberately, not a default it discovers |
+| **Clear all / Watch history** | Archives the feed into an attributed session, restorable after restart | A shift handover, with the ledger untouched |
+| **Verify the chain** | Re-checks the audit log on every page open | A tampered log is found by whoever looks next, not by whoever tampered |
+
+Two properties hold across all of it. **Every consequential action is
+attributed** — the ledger records who, not just what. And **the AI can never be
+the last actor on anything that costs a customer money**: it can cool an account
+for ten minutes and propose a refund, and a person releases the one and approves
+the other.
+
+The screenshot above is one incident. Three registered agents presented slips for
+the same payer, every deterministic check passed for each of them, the adjudicator
+was asked what the pattern meant, and it answered `credential farm` at 90%
+confidence. The account is cooled for ten minutes and a person can lift it from
+that panel.
 
 Set up an operator once, then run the server:
 
@@ -1118,6 +1143,40 @@ Pretending a hackathon build is production-grade is the actual red flag.
   answer is a wrong answer; the deterministic fallback *is* the retry policy.
 - **The agent registry is in-memory.** A real deployment would back it with a shared
   store and key rotation.
+
+---
+
+## How this was built
+
+This was built with **Claude (Opus 5) as a pair programmer**, and every commit
+in this repository carries a `Co-Authored-By: Claude Opus 5` trailer. That is
+stated here rather than left to be discovered, because a reviewer who finds it
+in `git log` after reading the README should not feel they found something that
+was hidden.
+
+What that did and did not mean, since the distinction is the interesting part
+of the answer:
+
+- **The judgement calls are mine.** Which shapes earn a ten-minute block and
+  which only earn an alert; that coupon abuse belongs in arithmetic rather than
+  in a prompt; that the scoreboard is denominated in rupees rather than
+  percentages; that a redaction fix which improved every count and raised total
+  cost by 22% does not ship. Those are product decisions and they are argued for
+  in this file.
+- **The measurements are the referee, not either of us.** Every number here
+  comes from a committed artefact produced by a command in this README. Three
+  times a change that read as obviously correct was reverted because the
+  measurement disagreed — [FAILURES.md](FAILURES.md) entries 15, 19 and 22 are
+  each a version of that.
+- **The failures are recorded rather than smoothed over.** Twenty-two entries,
+  including the ones where the mistake was mine, the ones where a test passed on
+  the friendly path and missed the adversarial one, and the one where the
+  monitoring lamp reported a green light over an outage.
+
+The interesting thing to ask about an AI-assisted build is not whether AI was
+used. It is whether the person driving it can tell you what they measured, what
+they discarded, and why — which is what this file, `FAILURES.md`, and the
+adversarial results are for.
 
 ---
 

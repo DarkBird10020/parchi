@@ -96,15 +96,30 @@ blocks that remain land on expensive carts. Nine metrics said ship it. The one
 that counts what a merchant loses said no, so it ships off, behind a flag, with
 both runs published.
 
-### The operations console
+### The operations console: the employee side of the product
 
-`/console` is the staff side: a real sign-in (scrypt, per-account lockout, and
-the password never in source), an alert feed where every entry names the
-account it was about, the adjudicator's verdict with its confidence and model,
-a per-account release button, and an on/off switch for the AI gate so the
-person paying the token bill can cap it. Turning it off stops model calls and
-automatic cooldowns; the deterministic alerts keep flowing, because cheaper
-must not mean blind.
+Everything above is the checkpoint, which runs in milliseconds and nobody
+watches. `/console` is the other half, and it is the half a company staffs. A
+risk product is a verdict **plus the person who answers for it**.
+
+Real sign-in (scrypt, per-account lockout, the password never in source), an
+alert feed where every entry names the account it was about, and the
+adjudicator's verdict with its confidence and model. What an employee can do:
+
+| Action | Note |
+|:--- |:--- |
+| Release a cooled account | Overruling the adjudicator on a live customer; logged with the operator's name |
+| Approve a refund | Executes a refund the AI *proposed* after a purchase went out wrong |
+| Acknowledge an alert | Attribution, not deletion: the alert stays in the feed |
+| Read the defence lamp | Reports whether the protecting AI is *answering*, not merely configured |
+| AI gate on/off | Stops model calls and cooldowns; detectors keep alerting, because cheaper must not mean blind |
+| Autonomous defence on/off | Unattended AI triage. **Default off** — that is a decision a company makes, not a default it discovers |
+| Clear all / watch history | An attributed shift handover; the ledger is untouched |
+
+Two properties hold across all of it. Every consequential action is attributed
+in the ledger by name. And **the AI is never the last actor on anything that
+costs a customer money**: it can cool an account for ten minutes and propose a
+refund, and a person releases the one and approves the other.
 
 ## The Razorpay integration
 

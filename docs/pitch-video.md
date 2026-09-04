@@ -131,7 +131,7 @@ Slide numbers refer to `docs/pitch-deck.html`.
 
 Slide 3 says CUT TO THE BROWSER. Stop sharing the deck and switch.
 
-**Beat 1, the injection (about 45 seconds).**
+**Beat 1, the injection (about 40 seconds).**
 
 > "The checkpoint, running. Straight to the hardest case: a prompt injection on
 > the product page."
@@ -146,37 +146,41 @@ Slide 3 says CUT TO THE BROWSER. Stop sharing the deck and switch.
 
 *Click Authorize. Wait for the verdict. Do not talk over the wait.*
 
-> "Blocked. The reason is in plain English: an extended protection plan the
-> human did not ask for. One model call is the only thing here that could have
-> caught it."
+> "Blocked, in plain English: a protection plan the human did not ask for.
+> One model call is the only thing that could have caught that."
 
-**Beat 2, the ledger (about 20 seconds). Optional: this is the first thing to
-cut if you are running long, and the script fits 5:00 without it.**
-
-> "Every decision goes into a hash-chained ledger. I am not going to ask you to
-> believe it is tamper-evident."
-
-*Click Tamper.*
-
-> "It reports itself broken."
-
-**Beat 3, the swarm and the console (about 55 seconds).**
+**Beat 2, the swarm and the block (about 40 seconds).**
 
 > "Now an attack no single cart can show."
 
 *Click the `swarm` scenario.*
 
 > "Allowed, and that is correct. Three registered agents each presented a valid
-> slip for the same account, and every rule passes. But one wallet with many
-> faces is a credential farm."
+> slip for the same account. Every rule passes. But one wallet with many faces
+> is a credential farm."
 
 *Switch to the console tab. Refresh.*
 
-> "The operations console. Staff only. The adjudicator read the pattern and
-> called it a credential farm, ninety percent confident."
+> "The adjudicator read the pattern and called it exactly that, ninety percent
+> confident. The account is blocked for ten minutes."
+
+**Beat 3, the employee side (about 40 seconds). This is the half a company
+actually staffs, and it is the beat most submissions do not have.**
+
+> "This page is the product for whoever has to answer for the decision."
 >
-> "The account is blocked for ten minutes, and a human can release it right
-> here. That release is logged with their name on it."
+> "A human releases that block, with their name on it. The AI can lock an
+> account. It can never unlock one."
+
+*Point at the refund row.*
+
+> "And when a purchase already went out wrong, the model reads it again and
+> **proposes** a refund. It does not issue it. An employee approves it here."
+
+*Point at the defence lamp on the band.*
+
+> "That lamp is the protecting AI reporting on itself. Not 'is it switched on'.
+> **Is it answering.** It showed green through a dead key until I caught it."
 
 ---
 
@@ -233,28 +237,22 @@ Switch back to the deck, slide 5.
 
 **Slide 7, the architecture (about 30 seconds).**
 
-> "The architecture is deliberately boring where it should be. Twelve
-> deterministic checks first: plain code, no AI in that file, stopping at the
-> first failure."
+> "The architecture is deliberately boring. Twelve deterministic checks first:
+> plain code, no AI in that file, stopping at the first failure. Only if every
+> one passes does a single model call run."
 >
-> "Only if every rule passes does one model call run, answering one question:
-> does this cart match what the human asked for."
->
-> "The spending cap is kept **out** of that prompt, so the model never
-> re-decides arithmetic."
->
-> "And three verdicts, not two: allow, block, and ask the human. If the model
-> call dies, the answer is ask. Never allow."
+> "Three verdicts, not two: allow, block, and ask the human. If that call
+> dies, the answer is ask. Never allow."
 
 **Slides 8 and 9, the close (about 20 seconds).**
 
 > "This sits where Razorpay sits, between the agent and the merchant. Bad agent
 > traffic that clears costs the merchant twice: the chargeback, and the dispute
-> ratio behind it. Every number I just showed is merchant money."
+> ratio behind it. Every number I showed is merchant money."
 >
 > "Agent Studio answers disputes on human transactions. This is the other half:
-> it prevents and evidences them on agent transactions. And it is defence only.
-> Nothing here can initiate a payment."
+> it prevents them on agent transactions. Defence only. Nothing here can
+> initiate a payment."
 
 *Advance to the last slide.*
 
@@ -267,18 +265,22 @@ Switch back to the deck, slide 5.
 
 ### Timing, measured rather than hoped
 
-The spoken lines are **725 words** without the optional ledger beat, 748
-with it. Add about 20 seconds of clicking and waiting in the demo, where you
-should not be talking anyway.
+The spoken lines are **747 words**. Add about 20 seconds of clicking and
+waiting in the demo, where you should not be talking anyway.
 
-| Your pace | Without the ledger beat | With it |
-|:--- |:--- |:--- |
-| 145 wpm, unhurried | 5:20 | 5:30 |
-| 155 wpm, normal for a technical talk | **5:01** | 5:10 |
-| 165 wpm, brisk | 4:44 | 4:52 |
+| Your pace | Total |
+|:--- |:--- |
+| 145 wpm, unhurried | 5:29 |
+| 155 wpm, normal for a technical talk | **5:09** |
+| 165 wpm, brisk | 4:51 |
 
-If you speak slowly, buy time in this order: drop the ledger beat (about 10
-seconds), then slide 7's cap anecdote (about 15).
+The split is roughly 3:00 of explaining (blocks A and C) against 2:00 of live
+demonstration (block B), which is what the form asks for.
+
+If you speak slowly, buy time in this order: the ledger tamper beat is already
+out of the script and is listed below under what to add if you run short, so
+start instead by cutting slide 8's Agent Studio sentence (about 15 seconds),
+then beat 3's defence-lamp line (about 15). Do not cut slide 6.
 
 So: **rehearse once with a stopwatch and read your own row off that table.**
 Nothing else in this document matters as much as knowing which row you are.
@@ -289,12 +291,27 @@ found out on the day rather than in the repo.
 
 If you still run long, cut in this order and never anything below it:
 
-1. Beat 2, the ledger tamper.
-2. Slide 7's cap anecdote, keeping the rest of the architecture.
-3. Slide 8, the Agent Studio comparison.
+1. Slide 8, the Agent Studio comparison.
+2. Beat 3's defence-lamp line, keeping the refund-approval line.
+3. Slide 7 down to its last sentence, the three verdicts.
 
-Never cut slide 6. A 5:10 video with slide 6 intact is a better submission than
-a tight 5:00 without it.
+Never cut slide 6, and never cut the refund-approval line in beat 3. Those two
+are the beats that separate this from a demo of a filter: one is a measurement
+that reversed a decision, the other is an AI that proposes and a human who
+disposes.
+
+**If you run short**, add the ledger tamper back. It used to be beat 2 and it
+costs about 15 seconds:
+
+> "Every decision goes into a hash-chained ledger. I am not going to ask you to
+> believe it is tamper-evident."
+
+*Click Tamper.*
+
+> "It reports itself broken."
+
+A 5:20 video with slide 6 and the refund line intact is a better submission
+than a tight 5:00 without them.
 
 ---
 
@@ -363,6 +380,49 @@ a tight 5:00 without it.
    shared nonce store and agent registry, a signed external anchor for the
    ledger, and shared state behind the behavioural detectors, which are
    per-process today.
+
+11. **"Who is the user of the console, and what can they actually do?"**
+   → A risk or operations employee, and the list is short on purpose: release a
+   cooled account, approve a refund the AI proposed, acknowledge an alert, flip
+   the AI gate off when the token bill matters, and read the defence lamp. Every
+   one of those is attributed in the ledger by name. The two that cost a
+   customer money — releasing a block and approving a refund — are the two the
+   AI is structurally not allowed to do. It can lock an account and it can
+   propose a refund; a person does the rest.
+
+12. **"Your AI proposes refunds. What stops it refunding everything?"**
+   → It has no refund capability. The after-purchase review writes a
+   `REFUND_PENDING` state and a critical alert; the money moves when an operator
+   clicks approve, and the approval carries their name. A review that could not
+   judge the cart proposes nothing rather than proposing a refund it cannot
+   justify. The general rule is the one in the README: **an AI is never the last
+   actor on anything that costs a customer money.**
+
+13. **"You have an autonomous defence toggle. Why is it off by default?"**
+   → Because unattended AI action on live accounts is a decision a company makes
+   deliberately, not a default it discovers after an incident. On, it lets the
+   adjudicator triage privilege-escalation incidents without waiting for a human.
+   Off, the deterministic ten-minute block still lands and an operator still gets
+   the alert — the safety property does not depend on the toggle, only the speed
+   of the triage does.
+
+14. **"How do you know the protecting AI is actually running?"**
+   → For a while I did not, and that is the honest answer. The console's lamp
+   read the call budget, which counts calls the process is *allowed* to make. A
+   refused call still spends one, so a dead key read green at zero successful
+   calls while every adjudication silently returned nothing and the detectors
+   carried on alerting as normal. The lamp now tracks outcomes: four consecutive
+   failures turn it red and it names the cause. Fail-open is only safe if
+   somebody is told. FAILURES entry 21.
+
+15. **"You changed model providers late. What broke?"**
+   → Nothing in the HTTP shape, which is what the portability claim was about,
+   and three things around it. Reasoning tokens are spent from `max_tokens`
+   before any content, so a 300-token ceiling returned an *empty* message with a
+   200 status. The models took 58-83s until asked not to reason, then 6-9s. And
+   the adjudicator's retry chain spent three calls to cover one failure, with a
+   fallback pinned to a model the new endpoint does not offer. The cost is in
+   the README: intent p95 went 6.1s to 10.9s. FAILURES entry 22.
 
 ---
 

@@ -40,10 +40,25 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: "3.12"
-      # The offline matcher, so the demo needs no key and cannot be run up a
-      # bill. Remove this to use a real model on a private deploy.
-      - key: PARCHI_DEMO_PROVIDER
-        value: heuristic
+      # PARCHI_DEMO_PROVIDER is deliberately NOT set here.
+      #
+      # Unset, the demo uses a live model when PARCHI_OPENAI_API_KEY is present
+      # in the host's environment, and asks for human confirmation when it is
+      # not. Set it to `heuristic` to force the offline matcher instead, which
+      # is the right choice for a public deploy with no key: every scenario
+      # returns its correct verdict and there is nothing to run up a bill.
+      #
+      # Read this before adding a key to a PUBLIC deploy. The intent check
+      # degrades rather than failing, so when a rate-limited key runs out of
+      # quota every model-bound scenario silently returns STEP_UP instead of
+      # its real verdict - the page keeps working and stops being right.
+      # FAILURES.md entry 24 is that exact failure, found the hard way. The
+      # console's defence lamp reports it, but nobody is watching a public
+      # demo's console. A dev key rated at 100 requests per five hours is
+      # roughly one curious visitor.
+      #
+      # - key: PARCHI_DEMO_PROVIDER
+      #   value: heuristic
       # The console is OFF unless an operator is configured, which is what
       # should happen on a public host: it is a fraud console, and the page
       # a public deploy must not hand anybody is the one showing which

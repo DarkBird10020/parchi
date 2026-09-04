@@ -89,6 +89,12 @@ def test_swarm_is_tracked_per_payer():
 
 def test_assess_attack_returns_none_when_no_provider_is_configured(monkeypatch):
     """Fail open: no model must never mean 'block because I could not think'."""
+    # `assess_attack` calls load_dotenv() itself, which reads .env off disk and
+    # puts the key straight back after this test deletes it. So on any machine
+    # that HAS a .env - a developer's - this test was making a live model call
+    # and passing for the wrong reason; it only tested fail-open on CI, where
+    # no .env exists. Neutralise the loader first, then unset.
+    monkeypatch.setattr(server.openai_provider, "load_dotenv", lambda *a, **k: None)
     monkeypatch.delenv("PARCHI_OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.delenv("PARCHI_GUARD_MODEL", raising=False)

@@ -158,6 +158,18 @@ def reset_budget(limit: int | None = None) -> CallBudget:
     return _BUDGET
 
 
+class EmptyMessage(Exception):
+    """A 200 whose message content is empty. Retryable, like a dropped socket."""
+
+
+def _content_of(payload: Any) -> str:
+    """The assistant text, or "" if the response carries none."""
+    try:
+        return payload["choices"][0]["message"].get("content") or ""
+    except (KeyError, IndexError, TypeError):
+        return ""
+
+
 class CallHealth:
     """Whether the endpoint is actually answering, as opposed to configured.
 
@@ -505,8 +517,26 @@ def _request(prompt: str, timeout: float, model: str | None,
             if _SUPPORTS_JSON_SCHEMA is None and "json_schema" in json.dumps(body):
                 _SUPPORTS_JSON_SCHEMA = True
             payload = json.loads(raw)
+            # An empty message is a transport-grade failure wearing a success
+            # status, and it is the one this endpoint actually produces: a 200
+            # whose content is "" while the reasoning field is full. Raising
+            # here degraded the intent check to STEP_UP, so the demo answered
+            # "ask a human" to a prompt injection it had every ability to
+            # block. Retried once, on the same terms as a dropped socket,
+            # because that is the same class of fault - the endpoint did not
+            # give an answer, it failed to give one. Still bounded by
+            # transport_failures, so a persistently empty model raises rather
+            # than looping.
+            if not (_content_of(payload) or "").strip():
+                raise EmptyMessage("model returned an empty message")
             health().record_ok()
             break
+        except EmptyMessage as exc:
+            transport_failures += 1
+            _drop_connection()
+            if transport_failures >= 2:
+                health().record_failure(f"{type(exc).__name__}: {exc}")
+                raise RuntimeError(str(exc)) from None
         except RuntimeError as exc:
             # An HTTP status the endpoint chose to return: 401 on a dead key,
             # 402 or 429 on an exhausted subscription. Never retried, always

@@ -195,7 +195,7 @@ def assess_attack(actor: str, signals: dict[str, Any],
         # percent of the window re-asking a model that is down. Re-asking a
         # different one covers endpoint noise and a dead model at once.
         attempts = [chosen]
-        if FALLBACK_GUARD_MODEL != chosen:
+        if chosen != FALLBACK_GUARD_MODEL:
             attempts.append(FALLBACK_GUARD_MODEL)
         else:
             attempts.append(chosen)

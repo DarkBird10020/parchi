@@ -1,0 +1,156 @@
+PARCHI - RAZORPAY AI BUILDATHON SUBMISSION FORM
+Paste-ready answers. Plain text: form fields do not render markdown.
+
+Repo:  https://github.com/DarkBird10020/parchi
+Script: docs/pitch-video.md   Failures: FAILURES.md   Notes: docs/submission.md
+
+
+================================================================
+1. SELECTED TRACK
+================================================================
+
+Track 02 - AI Risk Manager
+
+
+================================================================
+2. PROJECT NAME / TITLE
+================================================================
+
+Parchi
+
+
+================================================================
+3. PROJECT OBJECTIVES  (what does it solve?)
+================================================================
+
+Razorpay has launched Agentic Payments on UPI Reserve Pay. When an AI agent
+spends a human's money, two questions are still unanswered at transaction
+time: did the actual cart stay inside what the human signed, and when the
+customer says "my agent did that, I didn't," can the merchant prove what was
+authorised?
+
+UPI can confirm the money is there and the merchant is the right one. It
+cannot answer the third question - is this the thing I actually asked for?
+That gap is where agent fraud lives, and an agent can present a hundred
+plausible carts a minute. Every one that gets through is a dispute the
+merchant has no evidence to contest.
+
+Parchi is that missing check. Every agent purchase must carry a signed,
+AP2-inspired intent mandate: the human's cap, categories, methods, expiry, a
+one-time nonce, and the agent's own playback of what it understood the human
+to ask for. Twelve deterministic checks run first - plain code, no AI in that
+file, short-circuiting on the first failure. Only a cart that passes all
+twelve costs one model call, which answers the single question rules cannot:
+does this cart match what the human actually asked for?
+
+Three verdicts, not two: allow, block, and ask the human. A system with only
+allow and block is a filter; the third verdict is what makes it a risk
+product. If the model call dies or times out, the answer is ask - never
+allow. Every decision, either way, is written to a hash-chained ledger with a
+dispute evidence pack, so the merchant can prove what was authorised.
+
+Scored on 1,000 labelled agent purchases, with false positives counted in
+rupees rather than percentages, because a blocked real customer is money the
+merchant lost:
+
+  Block all agent traffic   0 violations paid out   Rs 33,73,331 of good revenue refused
+  Allow everything          280 paid out            Rs 17,83,157 paid out on violations
+  Rules only                235/280 caught          Rs 2,19,908 paid out on violations
+  Parchi (rules + 1 model)  278/280 caught          Rs 1,59,521 total cost of mistakes
+
+That last row is a run against a real model, not an offline stand-in. Against
+attacks written by a separate model that was shown the product and none of the
+rules, checks or thresholds, Parchi catches 76% - and the seven that got
+through are named in the README rather than summarised.
+
+There is also an operations console for the staff side, because a risk product
+is a verdict plus the person who answers for it. Every consequential action is
+attributed by name in the ledger, and the AI is never the last actor on
+anything that costs a customer money: it can cool an account for ten minutes
+and propose a refund, and a person releases the one and approves the other.
+
+Strictly defence-only: nothing in this repository can initiate a payment.
+Every path is a verifier or a blocker, by construction rather than assertion.
+
+
+================================================================
+4. GITHUB REPOSITORY URL
+================================================================
+
+https://github.com/DarkBird10020/parchi
+
+
+================================================================
+5. 5-MIN PITCH VIDEO LINK
+================================================================
+
+<<< PASTE YOUR UNLISTED YOUTUBE URL HERE BEFORE SUBMITTING >>>
+
+The form says no edits are possible after submitting. Do not confirm the
+final checkbox until this line is a real URL.
+
+
+================================================================
+6. BUILD CHALLENGES & TECHNICAL OBSTACLES
+================================================================
+
+Three worth naming, all measured rather than remembered.
+
+The AI that blocks accounts was convicting innocent customers. I built an
+adjudicator that reads an account's behaviour and can lock it for ten minutes.
+It caught every attack I threw at it, so it looked finished. Then I noticed
+every deterministic check in the repo is scored against a thousand rows while
+the one component that can refuse a real customer was scored against nothing.
+I wrote the eval that should have existed first: twelve situations, half of
+them ordinary customers who trip a counter. It convicted fifteen of eighteen
+benign cases. Its perfect recall was not skill; a rule that always says yes
+catches every attack too. The prompt listed what attacks look like and never
+said what clearing someone looks like. Writing the cost asymmetry into the
+prompt took it to 18/18 attacks caught with 16/18 customers left alone.
+eval/adjudicator.py re-runs the measurement. FAILURES entry 16.
+
+The evidence published beside my headline numbers was from a different
+run. The ledger linked as proof of the full model run ended 5,550 seconds
+before that run started, and the results file named a third file that a later
+run had overwritten. Every artefact verified on its own; the claim that one
+was evidence for the other did not. The cause was that a full batch always
+wrote the same ledger path, so publishing meant remembering to copy a file.
+evaluate.py now takes --ledger, the run was redone on a quiet tree, and a
+test asserts a published ledger's records fall inside the window of the run
+reporting them. The honest consequence: recall went 97.1% to 99.3% and false
+blocks went 12 to 22, and I published the worse-looking half. FAILURES 17.
+
+Two prompt fixes that were obviously right measured worse. The model was
+re-deciding the spending cap, so I told it not to; it invented a different
+price judgement instead. I forbade price reasoning entirely; that was worse
+again. Three full batches, about two hours, to arrive back where I started.
+Adding a rule to a prompt does not delete a behaviour, it moves it. FAILURES
+15, with both measured tables.
+
+Full log, twenty-two entries with what I assumed, what it actually was, and
+what it cost: FAILURES.md
+
+Full log, twenty-two entries with what I assumed, what it actually was, and
+what it cost:
+https://github.com/DarkBird10020/parchi/blob/main/FAILURES.md
+
+
+================================================================
+7. FINAL SUBMISSION CONFIRMATION
+================================================================
+
+Tick only after the video link above is filled in.
+
+
+================================================================
+BEFORE YOU HIT SUBMIT
+================================================================
+
+- The video URL is in field 5 and the video is set to Unlisted, not Private.
+  A Private video is invisible to the judges and looks like a broken link.
+- Play the video once from a signed-out browser to confirm it actually plays.
+- The repo is public and CI is green.
+- Field 6 keeps the entry that admits the numbers got worse - recall went
+  97.1% to 99.3% but false blocks went 12 to 22 - because the better-looking
+  evidence file could not be verified. That is the strongest paragraph in the
+  answer. Keep it.

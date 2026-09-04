@@ -54,6 +54,12 @@
   .ctbtn:hover{border-color:var(--ink); color:var(--ink)}
   .ctbtn.off{border-color:var(--stepup); color:var(--stepup)}
   .ctbtn.danger{border-color:var(--block); color:var(--block); font-weight:700}
+  #toast{position:fixed; left:50%; bottom:26px; transform:translateX(-50%) translateY(8px);
+         background:var(--ink); color:var(--paper); padding:11px 18px; border-radius:3px;
+         font-family:var(--mono); font-size:12px; letter-spacing:.04em; z-index:200;
+         opacity:0; pointer-events:none; transition:opacity .16s ease, transform .16s ease;
+         max-width:min(560px,92vw); text-align:center}
+  #toast.on{opacity:1; transform:translateX(-50%) translateY(0)}
   .dl{cursor:help}
   .dl.green{color:var(--allow)}
   .dl.amber{color:var(--stepup)}
@@ -314,6 +320,23 @@
 
 <script>
 const $ = (s) => document.querySelector(s);
+
+// A one-line status message. The console had no way to say "that worked" or
+// "that failed" for an action that is not a page transition, so actions that
+// failed said nothing at all and looked like dead buttons.
+let _toastTimer = null;
+function toast(message){
+  let el = document.getElementById("toast");
+  if(!el){
+    el = document.createElement("div");
+    el.id = "toast";
+    document.body.appendChild(el);
+  }
+  el.textContent = message;
+  el.classList.add("on");
+  clearTimeout(_toastTimer);
+  _toastTimer = setTimeout(() => el.classList.remove("on"), 4500);
+}
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => (
   {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 
@@ -585,16 +608,29 @@ function renderCooldowns(cooldowns){
 
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest("[data-release]");
-  if(!btn || !session) return;
+  if(!btn) return;
+  // Silence is the one answer this button must never give. It used to return
+  // here with no session and no message, so a signed-out tab looked exactly
+  // like a broken button - and a failed release looked like nothing at all.
+  if(!session){ signOut("Sign in again to release an account."); return; }
+  const original = btn.textContent;
   btn.disabled = true;
+  btn.textContent = "Releasing…";
   try {
-    await call("/api/console/release", {method:"POST",
+    const r = await call("/api/console/release", {method:"POST",
       headers:{"content-type":"application/json"},
       body: JSON.stringify({account: btn.dataset.release})});
+    // The server answers "not being held" when the block expired between the
+    // render and the click. Nothing went wrong, and the row is about to
+    // disappear either way, but say which happened.
+    if(r && r.released && r.released.length === 0)
+      toast("That account was no longer being held.");
     refresh();
   } catch(err){
     btn.disabled = false;
-    if(err.message === "unauthorised") signOut("Session expired. Sign in again.");
+    btn.textContent = original;
+    if(err.message === "unauthorised"){ signOut("Session expired. Sign in again."); return; }
+    toast("Release failed: " + err.message);
   }
 });
 

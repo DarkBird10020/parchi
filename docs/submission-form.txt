@@ -1,8 +1,10 @@
 PARCHI - RAZORPAY AI BUILDATHON SUBMISSION FORM
-Paste-ready answers. Plain text: form fields do not render markdown.
+Paste-ready. Plain text: form fields render no markdown.
 
-Repo:  https://github.com/DarkBird10020/parchi
-Script: docs/pitch-video.md   Failures: FAILURES.md   Notes: docs/submission.md
+Repo: https://github.com/DarkBird10020/parchi
+
+Short answers first - they are the ones to paste. The longer versions are at
+the bottom if a field turns out to have room and you want it.
 
 
 ================================================================
@@ -20,6 +22,112 @@ Parchi
 
 
 ================================================================
+3. PROJECT OBJECTIVES  (what does it solve?)     ~170 words
+================================================================
+
+Razorpay's Agentic Payments let an AI spend a human's money. UPI checks that
+the money is there and the merchant is right. Nothing checks the purpose - is
+this the thing the human actually asked for? That gap is where agent fraud
+lives, and it is a dispute the merchant cannot contest.
+
+Parchi is that missing check. Every agent purchase carries a signed AP2-style
+intent mandate: cap, categories, methods, expiry, one-time nonce, and the
+agent's own playback of the request.
+
+- 12 deterministic checks run first. Plain code, no AI, stop on first failure.
+- Only a cart that passes all 12 costs one model call.
+- Three verdicts: allow, block, ask the human. If the model dies, the answer
+  is ask - never allow.
+- Every decision is hash-chained evidence for the dispute.
+
+Measured on 1,000 labelled agent purchases, with false positives priced in
+rupees because a blocked real customer is lost revenue:
+
+  Block all agent traffic    Rs 33,73,331 of good revenue refused
+  Allow everything           Rs 17,83,157 paid out on violations
+  Rules only                 235/280 caught, Rs 2,19,908 leaked
+  Parchi                     278/280 caught, 22 false blocks, Rs 1,59,521
+
+Against attacks written by a separate model that was shown the product and
+none of my rules: 76% caught, and the 7 that got through are named in the
+README.
+
+Defence-only: nothing in the repo can initiate a payment.
+
+
+================================================================
+4. GITHUB REPOSITORY URL
+================================================================
+
+https://github.com/DarkBird10020/parchi
+
+
+================================================================
+5. 5-MIN PITCH VIDEO LINK
+================================================================
+
+<<< PASTE YOUR UNLISTED YOUTUBE URL HERE BEFORE SUBMITTING >>>
+
+No edits after submitting. Do not tick field 7 until this is a real URL.
+
+
+================================================================
+6. BUILD CHALLENGES & TECHNICAL OBSTACLES        ~200 words
+================================================================
+
+Three, all measured rather than remembered.
+
+1. My own AI was blocking innocent customers.
+The adjudicator that can lock an account for 10 minutes caught every attack I
+threw at it, so it looked finished. Then I noticed every deterministic check
+was scored against 1,000 rows, while the one component that can refuse a real
+customer was scored against nothing. I wrote that eval. It convicted 15 of 18
+innocent customers. Its perfect recall was not skill - a rule that always says
+yes catches every attack too. Fix: put the cost of a false conviction into the
+prompt. Result: 18/18 attacks caught, 16/18 customers left alone.
+
+2. My published evidence was from a different run.
+The ledger I linked as proof of my headline numbers ended 5,550 seconds before
+that run started. Every file was valid; the claim that one proved the other was
+not. Fixed with an explicit ledger path and a test asserting the records fall
+inside the run's window. Consequence: false blocks went 12 to 22, and I
+published the worse number.
+
+3. Two "obviously right" prompt fixes measured worse.
+Told the model to stop re-deciding the cap; it invented a different price
+judgement. Banned price reasoning; worse again. Three batches, two hours,
+reverted both. A rule added to a prompt moves a behaviour, it does not delete
+it.
+
+Full log, 22 entries with what I assumed, what it actually was, and what it
+cost: https://github.com/DarkBird10020/parchi/blob/main/FAILURES.md
+
+
+================================================================
+7. FINAL SUBMISSION CONFIRMATION
+================================================================
+
+Tick only after field 5 is filled in.
+
+
+================================================================
+BEFORE YOU HIT SUBMIT
+================================================================
+
+- Video URL is in field 5, and the video is Unlisted, NOT Private. A Private
+  video is invisible to judges and reads as a broken link.
+- Play it once from a signed-out browser to confirm.
+- Repo is public and CI is green.
+- Keep the entry in field 6 that admits the numbers got worse. Almost nobody
+  volunteers that, and it is the paragraph that shows how you work.
+
+
+================================================================
+================================================================
+APPENDIX: the longer versions, if a field has room
+================================================================
+================================================================
+
 3. PROJECT OBJECTIVES  (what does it solve?)
 ================================================================
 
@@ -73,24 +181,8 @@ Strictly defence-only: nothing in this repository can initiate a payment.
 Every path is a verifier or a blocker, by construction rather than assertion.
 
 
-================================================================
-4. GITHUB REPOSITORY URL
-================================================================
-
-https://github.com/DarkBird10020/parchi
 
 
-================================================================
-5. 5-MIN PITCH VIDEO LINK
-================================================================
-
-<<< PASTE YOUR UNLISTED YOUTUBE URL HERE BEFORE SUBMITTING >>>
-
-The form says no edits are possible after submitting. Do not confirm the
-final checkbox until this line is a real URL.
-
-
-================================================================
 6. BUILD CHALLENGES & TECHNICAL OBSTACLES
 ================================================================
 
@@ -133,24 +225,3 @@ what it cost: FAILURES.md
 Full log, twenty-two entries with what I assumed, what it actually was, and
 what it cost:
 https://github.com/DarkBird10020/parchi/blob/main/FAILURES.md
-
-
-================================================================
-7. FINAL SUBMISSION CONFIRMATION
-================================================================
-
-Tick only after the video link above is filled in.
-
-
-================================================================
-BEFORE YOU HIT SUBMIT
-================================================================
-
-- The video URL is in field 5 and the video is set to Unlisted, not Private.
-  A Private video is invisible to the judges and looks like a broken link.
-- Play the video once from a signed-out browser to confirm it actually plays.
-- The repo is public and CI is green.
-- Field 6 keeps the entry that admits the numbers got worse - recall went
-  97.1% to 99.3% but false blocks went 12 to 22 - because the better-looking
-  evidence file could not be verified. That is the strongest paragraph in the
-  answer. Keep it.

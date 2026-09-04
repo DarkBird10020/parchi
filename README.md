@@ -16,7 +16,9 @@
 
 <div align="center">
 
-**[Pitch script](docs/pitch-video.md)** · **[Submission notes](docs/submission.md)** · **[What broke](FAILURES.md)**
+**[▶ Live demo](https://parchi-demo.onrender.com)** · **[Pitch script](docs/pitch-video.md)** · **[Submission notes](docs/submission.md)** · **[What broke](FAILURES.md)**
+
+<sub>The live demo runs the offline matcher and carries no API key, so it is the reproducible no-key path rather than the model run.<br>It sleeps when idle: the first request can take ~50 seconds to wake it.</sub>
 
 </div>
 

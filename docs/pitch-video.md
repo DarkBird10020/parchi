@@ -88,36 +88,54 @@ Unlisted YouTube link, which is what the form asks for.
 
 ## The script, word for word
 
-Three minutes explaining, two minutes demonstrating, in three blocks. Say the
-lines roughly as written. They are built to be **spoken**, not read: short
-sentences, one idea each, no clause you have to hold in your head. Where it
-says *pause*, actually stop for a beat. It is the difference between reciting
-and explaining.
+### How the five minutes are spent
 
-Slide numbers refer to `docs/pitch-deck.html`.
+The form asks for three minutes of explaining and two of demonstrating. That is
+exactly how this is built, and it is worth knowing the shape before you learn
+the lines:
+
+| | What | On screen | Time |
+|:--- |:--- |:--- |:--- |
+| **Block A** | The problem | Deck, slides 1-2 | 0:00-1:10 · 70s |
+| **Block B** | **The demo** | **Live browser** | **1:10-3:10 · 120s** |
+| **Block C** | Numbers, what broke, architecture | Deck, slides 5-10 | 3:10-5:00 · 110s |
+
+Blocks A and C are the three minutes of slides. Block B is the two minutes of
+live demonstration, and it is the middle of the video on purpose: a panel told
+to judge execution reliability should see the thing running before they are
+asked to believe any number about it.
+
+Say the lines roughly as written. They are built to be **spoken**, not read:
+short sentences, one idea each, no clause you have to hold in your head. Where
+it says *pause*, actually stop for a beat — it is the difference between
+reciting and explaining. Slide numbers refer to `docs/pitch-deck.html`.
 
 ---
 
-### BLOCK A · 0:00-1:10 · The problem (70 seconds, slides 1-2)
+### BLOCK A · 0:00-1:10 · The problem (70 seconds, deck slides 1-2)
+
+**What this block has to achieve:** by the end of it, someone who has never
+thought about agent payments should understand the gap, and want to see it.
+Do not explain your solution here. Just make the problem real.
 
 **Slide 1.** On screen: the title.
 
 > "When an AI agent spends your money, there is no parchi."
 >
-> "In India, a parchi is a permission slip. Show it, you get through."
+> "In India, a parchi is a permission slip. You show it, and you get through."
 
 *Pause. Advance to slide 2.*
 
 > "Razorpay has agentic payments now, on UPI Reserve Pay. The human approves a
-> spending limit up front. But the rail records the limit, not the purpose."
+> spending limit up front, then the agent shops on its own."
 >
 > "UPI can answer two questions. Is the money there, and is this the right
-> merchant. It cannot answer the third one. **Is this the thing I actually asked
-> for?**"
+> merchant. It cannot answer the third one, and that is the one that matters.
+> **Is this the thing I actually asked for?**"
 
-*Pause.*
+*Pause. Let that question sit for a beat.*
 
-> "That gap is where the fraud lives. The customer says: my agent did that, I
+> "That gap is where the fraud lives. The customer says, my agent did that, I
 > didn't. The merchant cannot prove otherwise."
 >
 > "So I built the missing check. Every agent purchase carries a signed
@@ -129,86 +147,97 @@ Slide numbers refer to `docs/pitch-deck.html`.
 
 ### BLOCK B · 1:10-3:10 · The demo (120 seconds, live browser)
 
-Slide 3 says CUT TO THE BROWSER. Stop sharing the deck and switch.
+Slide 3 says CUT TO THE BROWSER. Stop sharing the deck and switch to the
+running demo.
+
+**What this block has to achieve:** three things that build on each other. One
+cart the rules cannot catch. One attack no single cart can show. And the page
+a human sits in front of. Roughly 40 seconds each — the beats are equal on
+purpose, so losing time on the first does not eat the third.
 
 **Beat 1, the injection (about 40 seconds).**
 
 > "The checkpoint, running. Straight to the hardest case: a prompt injection on
 > the product page."
 
-*Click the `Prompt injection` scenario. Let the card show before you keep going.*
+*Click the `Prompt injection` scenario. Let the card render before you keep talking.*
 
 > "Right category. Under the cap. Valid signature. Every price is the shop's
-> own. All twelve deterministic rules pass."
+> own. All twelve deterministic rules pass this cart."
 >
 > "The product page told the agent to add a protection plan. The human never
 > asked for one."
 
 *Click Authorize. Wait for the verdict. Do not talk over the wait.*
 
-> "Blocked, in plain English: a protection plan the human did not ask for.
-> One model call is the only thing that could have caught that."
+> "Blocked, and the reason is in plain English: a protection plan the human did
+> not ask for. One model call is the only thing that could have caught that."
 
-**Beat 2, the swarm and the block (about 40 seconds).**
+**Beat 2, the swarm (about 40 seconds).**
 
-> "Now an attack no single cart can show."
+> "Now an attack that no single cart can show you."
 
 *Click the `swarm` scenario.*
 
 > "Allowed, and that is correct. Three registered agents each presented a valid
-> slip for the same account. Every rule passes. But one wallet with many faces
-> is a credential farm."
+> slip for the same account, and every rule passes. But one wallet with many
+> faces is a credential farm."
 
 *Switch to the console tab. Refresh.*
 
 > "The adjudicator read the pattern and called it exactly that, ninety percent
 > confident. The account is blocked for ten minutes."
 
-**Beat 3, the employee side (about 40 seconds). This is the half a company
-actually staffs, and it is the beat most submissions do not have.**
+**Beat 3, the employee side (about 40 seconds).** This is the half a company
+actually staffs, and it is the beat most submissions do not have at all.
 
-> "This page is the product for whoever has to answer for the decision."
+> "This page is the product for whoever answers for that decision."
 >
 > "A human releases that block, with their name on it. The AI can lock an
 > account. It can never unlock one."
 
 *Point at the refund row.*
 
-> "And when a purchase already went out wrong, the model reads it again and
+> "When a purchase already went out wrong, the model reads it again and
 > **proposes** a refund. It does not issue it. An employee approves it here."
 
 *Point at the defence lamp on the band.*
 
-> "That lamp is the protecting AI reporting on itself. Not 'is it switched on'.
-> **Is it answering.** It showed green through a dead key until I caught it."
+> "That lamp is the protecting AI reporting on itself. Not is it switched on.
+> **Is it answering.** It showed green through a dead key until I measured it."
 
 ---
 
-### BLOCK C · 3:10-5:00 · The numbers, what broke, the architecture (110 seconds)
+### BLOCK C · 3:10-5:00 · Numbers, what broke, architecture (110 seconds)
 
 Switch back to the deck, slide 5.
+
+**What this block has to achieve:** prove you measured it, then prove you can
+be trusted with your own measurements. The second half is the harder sell and
+it is the one that separates you.
 
 **Slide 5, the scoreboard (about 35 seconds).**
 
 > "A thousand labelled agent purchases. I count false positives in rupees,
 > because a blocked real customer is money the merchant lost."
 >
-> "Block everything, you lose thirty-three lakh of good revenue. Allow
-> everything, you pay out seventeen lakh. Rules alone leak two lakh."
+> "Block everything and you refuse thirty-three lakh of good revenue. Allow
+> everything and you pay out seventeen lakh. Rules alone still leak two lakh."
 >
 > "Parchi catches two hundred and seventy-eight of two hundred and eighty, and
 > wrongly blocks twenty-two."
 
-*Point at the last row. This is the sentence that buys you credibility:*
+*Point at the last row. This next sentence is the one that buys you credibility:*
 
-> "That row is the run against a **real model**, not an offline stand-in. I
-> could show you a hundred percent, but it would be my data and my rules
-> marking their own homework."
-
+> "That row is a run against a **real model**, not an offline stand-in. I could
+> show you a hundred percent, but it would be my data and my rules marking
+> their own homework."
+>
 > "So I had a model that has never seen my code write the attacks instead.
 > Against those, **seventy-six percent**. That is the number I would defend."
 
-**Slide 6, what broke (about 45 seconds). This is the beat that wins it. Slow down.**
+**Slide 6, what broke (about 45 seconds). This is the beat that wins it.
+Slow down.**
 
 > "Now the part I would want a risk team to read."
 >
@@ -218,8 +247,8 @@ Switch back to the deck, slide 5.
 *Pause.*
 
 > "Then I noticed: every deterministic check here is scored against a thousand
-> rows. The one component that can refuse a **real customer** was scored against
-> nothing."
+> rows. The one component that can refuse a **real customer** was scored
+> against nothing."
 >
 > "So I wrote the test that should have existed first. Twelve situations, half
 > of them ordinary customers who trip a counter. An office manager buying for a
@@ -229,8 +258,8 @@ Switch back to the deck, slide 5.
 
 *Pause. Let that sit.*
 
-> "Its perfect recall was not skill. **A rule that always says yes catches every
-> attack too.**"
+> "Its perfect recall was never skill. **A rule that always says yes catches
+> every attack too.**"
 >
 > "The fix was telling the model what a false conviction costs. Eighteen of
 > eighteen attacks caught. Sixteen of eighteen customers left alone."
@@ -241,18 +270,17 @@ Switch back to the deck, slide 5.
 > plain code, no AI in that file, stopping at the first failure. Only if every
 > one passes does a single model call run."
 >
-> "Three verdicts, not two: allow, block, and ask the human. If that call
-> dies, the answer is ask. Never allow."
+> "Three verdicts, not two: allow, block, and ask the human. If that call dies,
+> the answer is ask. Never allow."
 
-**Slides 8 and 9, the close (about 20 seconds).**
+**Slides 8 to 10, the close (about 20 seconds).**
 
 > "This sits where Razorpay sits, between the agent and the merchant. Bad agent
 > traffic that clears costs the merchant twice: the chargeback, and the dispute
 > ratio behind it. Every number I showed is merchant money."
 >
-> "Agent Studio answers disputes on human transactions. This is the other half:
-> it prevents them on agent transactions. Defence only. Nothing here can
-> initiate a payment."
+> "Agent Studio answers disputes on human transactions. This prevents them on
+> agent transactions. Defence only. Nothing here can initiate a payment."
 
 *Advance to the last slide.*
 
@@ -265,17 +293,22 @@ Switch back to the deck, slide 5.
 
 ### Timing, measured rather than hoped
 
-The spoken lines are **747 words**. Add about 20 seconds of clicking and
+The spoken lines are **758 words**. Add about 20 seconds of clicking and
 waiting in the demo, where you should not be talking anyway.
 
 | Your pace | Total |
 |:--- |:--- |
-| 145 wpm, unhurried | 5:29 |
-| 155 wpm, normal for a technical talk | **5:09** |
-| 165 wpm, brisk | 4:51 |
+| 145 wpm, unhurried | 5:33 |
+| 155 wpm, normal for a technical talk | **5:13** |
+| 165 wpm, brisk | **4:55** |
 
-The split is roughly 3:00 of explaining (blocks A and C) against 2:00 of live
-demonstration (block B), which is what the form asks for.
+The split is 3:00 of explaining (blocks A and C, 70s + 110s) against 2:00 of
+live demonstration (block B), which is exactly what the form asks for.
+
+Read that table honestly. At an unhurried pace this runs over five minutes, so
+if the limit is hard, either rehearse at the brisk row or take the first cut
+below. Knowing which row you are is worth more than anything else in this
+document.
 
 If you speak slowly, buy time in this order: the ledger tamper beat is already
 out of the script and is listed below under what to add if you run short, so

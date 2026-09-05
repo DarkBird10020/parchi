@@ -1169,3 +1169,34 @@ def test_autonomous_defense_is_guarded_and_only_runs_after_an_attack(
     assert feed["autonomous_defense_enabled"] is True
     assert any(a["kind"] == "autonomous_defense_enabled"
                for a in feed["alerts"])
+
+
+def test_health_reports_whether_the_console_was_configured():
+    """A console that fails closed looks exactly like a deploy that lost its
+    environment. Both answer 503 on every console route, and only one of them
+    is a mistake. Health says which, so the difference can be seen from
+    outside the host without reading its logs.
+    """
+    original = server.operators.email, server.operators.password_hash
+    try:
+        server.operators.email = ""
+        server.operators.password_hash = ""
+        assert client.get("/api/health").json()["console"] is False
+
+        server.operators.email = "ops@example.test"
+        server.operators.password_hash = "scrypt$1$1$1$AA==$AA=="
+        assert client.get("/api/health").json()["console"] is True
+    finally:
+        server.operators.email, server.operators.password_hash = original
+
+
+def test_health_reports_whether_step_up_approval_was_configured():
+    original = server.HUMAN_APPROVAL_SECRET
+    try:
+        server.HUMAN_APPROVAL_SECRET = ""
+        assert client.get("/api/health").json()["human_approval"] is False
+
+        server.HUMAN_APPROVAL_SECRET = "123456"
+        assert client.get("/api/health").json()["human_approval"] is True
+    finally:
+        server.HUMAN_APPROVAL_SECRET = original

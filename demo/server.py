@@ -1253,6 +1253,13 @@ def health():
         "ledger": {"detail": detail, "records": records},
         "intent_provider": resolve_provider("auto"),
         "razorpay_test_mode": razorpay is not None,
+        # Whether the operator console and the step-up approval channel were
+        # configured in this process's environment. Both fail closed when they
+        # are not, which is correct and also indistinguishable from a broken
+        # deploy - so a host that dropped its environment can be told apart
+        # from a host that is refusing on purpose without reading logs.
+        "console": console_enabled(),
+        "human_approval": bool(HUMAN_APPROVAL_SECRET),
     }
 
 

@@ -63,3 +63,19 @@ services:
       # should happen on a public host: it is a fraud console, and the page
       # a public deploy must not hand anybody is the one showing which
       # attempts were noticed.
+      #
+      # To turn it on for a demo, set these three in the host's environment -
+      # in the dashboard, never here, because this file is public and two of
+      # them are credentials:
+      #
+      #   PARCHI_CONSOLE_EMAIL          the operator's address
+      #   PARCHI_CONSOLE_PASSWORD_HASH  from `python -m parchi.console_setup`
+      #   PARCHI_HUMAN_APPROVAL_SECRET  the code that approves a step-up
+      #
+      # The hash is scrypt, so the environment never holds the password. The
+      # step-up secret is not a hash and is compared with compare_digest, so
+      # it is a shared code rather than a password: treat it as one.
+      #
+      # `GET /api/health` answers `console` and `human_approval`, which is how
+      # to tell a host that is refusing on purpose from one that lost its
+      # environment. Both look identical from the sign-in page.

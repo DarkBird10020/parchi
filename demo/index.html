@@ -674,7 +674,7 @@
         </div>    <div class="toolbar" id="authorizationActions" hidden>
       <button class="btn primary" id="btnApprove" hidden>Approve step-up</button>
       <span class="secretrow" id="secretRow" hidden>
-        <label for="secretInput">Human approval secret</label>
+        <label for="secretInput" id="secretLabel">Human approval secret</label>
         <input type="password" id="secretInput" autocomplete="off"
                placeholder="PARCHI_HUMAN_APPROVAL_SECRET" />
         <button class="btn sm primary" id="secretOk" type="button">Confirm</button>
@@ -1242,9 +1242,22 @@ async function run(id, btn){
 
 // Ask for the approval secret in the page rather than in a browser dialog.
 // Resolves to the string, or "" if the operator backs out.
+// On a demo instance the step-up code is published, because the human being
+// asked to type it is a stranger with a link. The server decides that; this
+// only prints what /api/health hands over. Null on any real deployment.
+let demoStepUpCode = null;
+fetch("/api/health").then(r => r.json()).then(h => {
+  if(h.demo_credentials) demoStepUpCode = h.demo_credentials.step_up_code;
+}).catch(() => {});
+
 function askForSecret(){
   return new Promise(resolve => {
     const row = $("#secretRow"), input = $("#secretInput");
+    if(demoStepUpCode){
+      $("#secretLabel").textContent = "Human approval code (demo: "
+        + demoStepUpCode + ")";
+      input.placeholder = demoStepUpCode;
+    }
     row.hidden = false;
     input.value = "";
     input.focus();

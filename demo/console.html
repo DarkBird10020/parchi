@@ -93,6 +93,9 @@
   .field input{width:100%; border:1px solid var(--rule); background:var(--paper);
                padding:11px 13px; border-radius:3px; font-family:var(--mono);
                font-size:13.5px; color:var(--ink)}
+  .demohint{font-size:13px; line-height:1.6; margin:10px 0 0; padding:10px 12px;
+    border:1px dashed var(--line); border-radius:8px; color:var(--ink-2);}
+  .demohint b{color:var(--ink); font-weight:600;}
   .err{color:var(--block); font-size:13.5px; min-height:20px; margin-top:12px;
        text-align:center}
   .note{font-family:var(--mono); font-size:10.5px; color:var(--ink-4); text-align:center;
@@ -216,6 +219,7 @@
     <button class="btn primary" type="submit" id="signin" style="width:100%">Sign in</button>
   </form>
   <div class="err" id="gateerr"></div>
+  <p class="demohint" id="demohint" hidden></p>
   <p class="note">One account, locked for five minutes after five wrong tries.<br />
      The password is stored as an scrypt hash, never as itself.</p>
 </div>
@@ -919,6 +923,28 @@ $("#signout").addEventListener("click", () => signOut(""));
 
 // A session already in this tab still gets checked before the shell is shown,
 // so a revoked or expired one does not leave a stale console open.
+// A demo instance publishes its sign-in, because the person opening it was
+// sent a link rather than given an account. The server decides that, not the
+// page: it prints only what /api/health hands it, and health hands over
+// credentials only when PARCHI_DEMO_CONSOLE is on.
+fetch("/api/health").then(r => r.json()).then(h => {
+  if(h.console_mode === "off"){
+    $("#gateerr").textContent = "This deployment has no console account "
+      + "configured, so the console is off rather than open. See render.yaml.";
+    return;
+  }
+  const d = h.demo_credentials;
+  if(!d) return;
+  const hint = $("#demohint");
+  hint.innerHTML = "Demo instance. Sign in with <b>" + d.email
+    + "</b> / <b>" + d.password + "</b>. The step-up code on the checkout page "
+    + "is <b>" + d.step_up_code + "</b>.<br />These are published on purpose: "
+    + "the accounts, carts and money here are scripted.";
+  hint.hidden = false;
+  if(!$("#email").value) $("#email").value = d.email;
+  if(!$("#password").value) $("#password").value = d.password;
+}).catch(() => {});
+
 if(session){
   call("/api/console/feed").then(signIn).catch(() => signOut(""));
 } else {

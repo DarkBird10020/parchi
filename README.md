@@ -16,9 +16,9 @@
 
 <div align="center">
 
-**[▶ Live demo](https://parchi-demo.onrender.com)** · **[Pitch script](docs/pitch-video.md)** · **[Submission notes](docs/submission.md)** · **[What broke](FAILURES.md)**
+**[▶ Live demo](https://parchi-demo.onrender.com)** · **[Operations console](https://parchi-demo.onrender.com/console)** · **[Pitch script](docs/pitch-video.md)** · **[Submission notes](docs/submission.md)** · **[What broke](FAILURES.md)**
 
-<sub>The live demo runs the offline matcher and carries no API key, so it is the reproducible no-key path rather than the model run.<br>It sleeps when idle: the first request can take ~50 seconds to wake it.</sub>
+<sub>Console sign-in: <code>demo@parchi.app</code> / <code>parchi-demo</code>. The step-up code on the checkout page is <code>424242</code>.<br>Published on purpose: on this instance the accounts, carts and money are scripted. A real deployment ships the console off rather than open.<br>The live demo runs the offline matcher and carries no API key, so it is the reproducible no-key path rather than the model run.<br>It sleeps when idle: the first request can take ~50 seconds to wake it.</sub>
 
 </div>
 

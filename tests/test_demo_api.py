@@ -1200,3 +1200,61 @@ def test_health_reports_whether_step_up_approval_was_configured():
         assert client.get("/api/health").json()["human_approval"] is True
     finally:
         server.HUMAN_APPROVAL_SECRET = original
+
+
+def test_demo_console_flag_opens_a_published_sign_in(monkeypatch):
+    """PARCHI_DEMO_CONSOLE fills an empty operator slot rather than weakening
+    a configured one, and health publishes the credentials only in that mode.
+    """
+    original = (server.DEMO_CONSOLE, server.operators.email,
+                server.operators.password_hash, server.HUMAN_APPROVAL_SECRET)
+    try:
+        server.DEMO_CONSOLE = True
+        server.operators.email = server.DEMO_CONSOLE_EMAIL
+        server.operators.password_hash = server.hash_password(
+            server.DEMO_CONSOLE_PASSWORD)
+        server.HUMAN_APPROVAL_SECRET = server.DEMO_APPROVAL_SECRET
+
+        health = client.get("/api/health").json()
+        assert health["console_mode"] == "demo"
+        assert health["demo_credentials"]["password"] == \
+            server.DEMO_CONSOLE_PASSWORD
+
+        signed_in = client.post("/api/console/login", json={
+            "email": server.DEMO_CONSOLE_EMAIL,
+            "password": server.DEMO_CONSOLE_PASSWORD})
+        assert signed_in.status_code == 200
+        assert signed_in.json()["session"]
+    finally:
+        (server.DEMO_CONSOLE, server.operators.email,
+         server.operators.password_hash,
+         server.HUMAN_APPROVAL_SECRET) = original
+
+
+def test_a_configured_operator_is_never_replaced_by_the_demo_account():
+    """The demo flag must not be a way to sign into a real deployment."""
+    original = (server.DEMO_CONSOLE, server.operators.email,
+                server.operators.password_hash)
+    try:
+        server.DEMO_CONSOLE = True
+        server.operators.email = "real@merchant.test"
+        server.operators.password_hash = server.hash_password("a real one")
+
+        assert client.get("/api/health").json()["console_mode"] == "configured"
+        assert client.get("/api/health").json()["demo_credentials"] is None
+        refused = client.post("/api/console/login", json={
+            "email": server.DEMO_CONSOLE_EMAIL,
+            "password": server.DEMO_CONSOLE_PASSWORD})
+        assert refused.status_code == 401
+    finally:
+        (server.DEMO_CONSOLE, server.operators.email,
+         server.operators.password_hash) = original
+
+
+def test_credentials_are_never_published_when_the_flag_is_off():
+    original = server.DEMO_CONSOLE
+    try:
+        server.DEMO_CONSOLE = False
+        assert client.get("/api/health").json()["demo_credentials"] is None
+    finally:
+        server.DEMO_CONSOLE = original

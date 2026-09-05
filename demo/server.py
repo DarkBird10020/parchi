@@ -53,7 +53,7 @@ from parchi.mandate import (
     sign_cart,
 )
 from parchi.openai_provider import load_dotenv
-from parchi.operators import OperatorDirectory, SessionStore
+from parchi.operators import OperatorDirectory, SessionStore, hash_password
 from parchi.pricing import Coupon, CouponBook, PriceBook
 from parchi.razorpay import RazorpayClient, RazorpayError
 from parchi.threat import CRITICAL, ProbeDetector, classify, looks_like_injection
@@ -161,6 +161,53 @@ HUMAN_APPROVAL_SECRET = os.environ.get("PARCHI_HUMAN_APPROVAL_SECRET", "").strip
 CONSOLE_TOKEN = os.environ.get("PARCHI_CONSOLE_TOKEN", "").strip()
 operators = OperatorDirectory.from_env()
 console_sessions = SessionStore()
+
+# A demo instance is the one case where "off by default" is the wrong default.
+#
+# Everything above is right for a deployment holding real money: a fraud console
+# is opened by someone who was given an account, and a host with no account
+# configured refuses rather than opens. But this repo is also handed to people
+# as a link, and the console is half of what it is trying to show. Refusing
+# them is not security, because there is nothing here to secure - the ledger is
+# built from sixteen scripted carts, the money is integers in memory, and the
+# only account it can act on is a fake one.
+#
+# So PARCHI_DEMO_CONSOLE=1 publishes a sign-in instead of hiding one. The
+# credentials below are in a public repository ON PURPOSE and protect nothing.
+# The flag is opt-in and off in every other environment, so nothing about a
+# real deployment changes: unset, the console is still off rather than open.
+#
+# The same argument covers the step-up code. A step-up exists to make a human
+# type something the agent cannot produce, and on a demo the human is a
+# stranger with a link, so the code has to be one the page can tell them.
+DEMO_CONSOLE = os.environ.get("PARCHI_DEMO_CONSOLE", "").strip().lower() in {
+    "1", "true", "yes", "on"}
+DEMO_CONSOLE_EMAIL = "demo@parchi.app"
+DEMO_CONSOLE_PASSWORD = "parchi-demo"
+DEMO_APPROVAL_SECRET = "424242"
+
+# A configured operator always wins. The demo account fills an empty slot; it
+# never replaces or weakens a real one.
+if DEMO_CONSOLE and not operators.configured:
+    operators = OperatorDirectory(
+        email=DEMO_CONSOLE_EMAIL,
+        password_hash=hash_password(DEMO_CONSOLE_PASSWORD),
+    )
+if DEMO_CONSOLE and not HUMAN_APPROVAL_SECRET:
+    HUMAN_APPROVAL_SECRET = DEMO_APPROVAL_SECRET
+
+
+def console_mode() -> str:
+    """"off", "demo" or "configured" - which is on the sign-in page's mind.
+
+    Split out because the three read identically from outside otherwise, and
+    the middle one is the only one whose credentials a page may print.
+    """
+    if not console_enabled():
+        return "off"
+    if DEMO_CONSOLE and operators.email == DEMO_CONSOLE_EMAIL:
+        return "demo"
+    return "configured"
 
 # Payer accounts. The shop's side of the login: a visitor signs up, gets their
 # own Ed25519 keypair, and every slip the demo builds for them is signed by
@@ -1259,7 +1306,14 @@ def health():
         # deploy - so a host that dropped its environment can be told apart
         # from a host that is refusing on purpose without reading logs.
         "console": console_enabled(),
+        "console_mode": console_mode(),
         "human_approval": bool(HUMAN_APPROVAL_SECRET),
+        # Printed by the sign-in page only in demo mode, where they are
+        # published credentials guarding scripted data. Never in any other.
+        "demo_credentials": (
+            {"email": DEMO_CONSOLE_EMAIL, "password": DEMO_CONSOLE_PASSWORD,
+             "step_up_code": DEMO_APPROVAL_SECRET}
+            if console_mode() == "demo" else None),
     }
 
 

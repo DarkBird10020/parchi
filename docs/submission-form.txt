@@ -101,6 +101,18 @@ https://github.com/DarkBird10020/parchi
 Live demo (if the form has anywhere to put it, or for the panel):
 https://parchi-demo.onrender.com
 
+The operations console - the employee side, where a held account is released
+and a refund is approved:
+https://parchi-demo.onrender.com/console
+    sign in     demo@parchi.app / parchi-demo
+    step-up code on the checkout page     424242
+
+Those are published on purpose and guard nothing: on this instance the
+accounts, carts and money are scripted. A deployment holding real money ships
+the console off rather than open, which is the default in the code, and this
+one turns it on with a single flag so that a reviewer with a link is not shut
+out of half of what the project does.
+
 It runs the offline matcher and carries no API key, so it is the reproducible
 no-key path rather than the model run, and there is no key on a public page to
 be spent by whoever finds it. Free hosting sleeps when idle - the first request

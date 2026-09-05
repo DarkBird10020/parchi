@@ -59,6 +59,18 @@ services:
       #
       # - key: PARCHI_DEMO_PROVIDER
       #   value: heuristic
+
+      # The console, ON for this deployment.
+      #
+      # It is off by default and that default is right for a host holding real
+      # money. This host holds sixteen scripted carts, and the console is half
+      # of what the deployment exists to show, so refusing the person who was
+      # sent the link protects nothing and hides the product. The flag
+      # publishes a sign-in on the page rather than hiding one; the account it
+      # creates is in demo/server.py, in public, guarding nothing. A real
+      # PARCHI_CONSOLE_EMAIL in the environment takes precedence over it.
+      - key: PARCHI_DEMO_CONSOLE
+        value: "1"
       # The console is OFF unless an operator is configured, which is what
       # should happen on a public host: it is a fraud console, and the page
       # a public deploy must not hand anybody is the one showing which
